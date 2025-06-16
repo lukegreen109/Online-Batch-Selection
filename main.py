@@ -32,8 +32,7 @@ def main():
     # argument parser
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg', default=None, type=str, help='Indicate the config file used for the training.')
-    parser.add_argument('--seed', default=None, type=int, help='Fix the random seed for reproduction. Default is None(random seed).')
-    parser.add_argument('--output_dir', default=None, type=str, help='Output directory that saves everything.')
+    parser.add_argument('--base_dir', default=None, type=str, help='base directory that saves everything.')
     parser.add_argument('--log_file', default=None, type=str, help='Logger file name.')
     # notes
     parser.add_argument('--notes', default=None, type=str, help='Notes for the experiment.')
@@ -49,90 +48,112 @@ def main():
         f.close()
     print('=====> Config file loaded.')
 
-    if args.seed is None:
-        args.seed = secrets.randbelow(5000) 
 
-    if args.seed is not None:
-        config["seed"] = args.seed
+
+
     if args.log_file is not None:
         config['log_file'] = args.log_file
     
-    if args.output_dir is None:
-        args.output_dir = './exp/'
+
+    if args.base_dir is None:
+        args.base_dir = './exp/'
         # dataset
-        args.output_dir = os.path.join(args.output_dir, config['dataset']['name'])
-        # method
-        args.output_dir = args.output_dir + '_' + config['method']
+        args.base_dir = os.path.join(args.base_dir, config['dataset']['name'])
         # model
-        args.output_dir = args.output_dir + '_' + config['networks']['type'] + '-' + config['networks']['params']['m_type']
+        args.base_dir = args.base_dir + '_' + config['networks']['type'] + '-' + config['networks']['params']['m_type']
         # bs
-        args.output_dir = args.output_dir + '_bs' + str(config['training_opt']['batch_size'])
+        args.base_dir = args.base_dir + '_bs' + str(config['training_opt']['batch_size'])
         # epochs
-        args.output_dir = args.output_dir + '_ep' + str(config['training_opt']['num_epochs'])
+        args.base_dir = args.base_dir + '_ep' + str(config['training_opt']['num_epochs'])
         # lr
-        args.output_dir = args.output_dir + '_lr' + str(config['training_opt']['optim_params']['lr'])
+        args.base_dir = args.base_dir + '_lr' + str(config['training_opt']['optim_params']['lr'])
         # optimizer
-        args.output_dir = args.output_dir + '_' + config['training_opt']['optimizer']
+        args.base_dir = args.base_dir + '_' + config['training_opt']['optimizer']
         # scheduler
-        args.output_dir = args.output_dir + '_' + config['training_opt']['scheduler']
+        args.base_dir = args.base_dir + '_' + config['training_opt']['scheduler']
         # seed
-        args.output_dir = args.output_dir + '_seed' + str(config['seed'])
+        args.base_dir = args.base_dir + '_seed' + str(config['seed'])
         # ratio
         if 'method_opt' in config:
             if 'ratio' in config['method_opt']:
-                args.output_dir = args.output_dir + '_r' + str(config['method_opt']['ratio'])
+                args.base_dir = args.base_dir + '_r' + str(config['method_opt']['ratio'])
         # notes
         if args.notes is not None:
-            args.output_dir = args.output_dir + '_' + args.notes
-        
-
-    # args.output_dir = os.path.join(args.output_dir, get_date()+ '_' + random_str(6))
-    args.output_dir = os.path.join(args.output_dir, get_date())
-
-    config['output_dir'] = args.output_dir
-    os.makedirs(args.output_dir, exist_ok=True)
-
-    # wandb_not_upload
-    if args.wandb_not_upload:
-        os.environ["WANDB_MODE"] = "dryrun"
-    else:
-        os.environ["WANDB_MODE"] = "run"
+            args.base_dir = args.base_dir + '_' + args.notes
     
-    if args.log_file is None:
-        logger = custom_logger(args.output_dir)
-    else:
-        logger = custom_logger(args.output_dir, args.log_file)
 
-    logger.info('========================= Start Main =========================')
+    # Check if methods is a list
+    if not isinstance(config['methods'], list):
+        raise ValueError("The config file must contain a 'methods' key with a list of method names.")
+
+    # Loop through each method in the config file
+    for method in config['methods']:
+        if method not in methods.__all__:
+            raise ValueError(f'Method {method} is not supported. Please check the methods.py file.')
+
+        # method/output_dir
+        args.output_dir = os.path.join(args.base_dir, method)
+        config['method'] = method
+        config['output_dir'] = args.output_dir
+
+        # Check if run has already been executed
+        if os.path.exists(args.output_dir):
+            print(f'Skip {method} as output already exists.')
+            continue
+        # Create output directory
+        os.makedirs(args.output_dir, exist_ok=True)
+        # method_config = copy.deepcopy(config)
 
 
-    # save config file
-    logger.info('=====> Saving config file')
-    with open(os.path.join(args.output_dir, 'config.yaml'), 'w') as f:
-        yaml.dump(config, f, default_flow_style=False)
-    logger.info('=====> Config file saved')
 
-    init_seeds(config["seed"])
-    # logger.info(f'=====> Random seed initialized to {config["seed"]}')
-    logger.info(f'=====> Wandb initialized')
-    run = wandb.init(config=config,project="Efficient Selection")
-    re_nest_configs(run.config)
-    wandb.define_metric('acc', 'max')
-    run.name = config['dataset']['name'] + '_' + config['output_dir'].split('/')[-2]
+        # wandb_not_upload
+        if args.wandb_not_upload:
+            os.environ["WANDB_MODE"] = "dryrun"
+        else:
+            os.environ["WANDB_MODE"] = "run"
+        
+        if args.log_file is None:
+            logger = custom_logger(args.output_dir)
+        else:
+            logger = custom_logger(args.output_dir, args.log_file)
 
-    wandb_local_path = wandb.run.dir
-    # save wandb_local_path to wandb_local_path.txt
-    with open(os.path.join(args.output_dir, 'wandb_local_path.txt'), 'w') as f:
-        f.write(wandb_local_path)
-        f.close()
+        logger.info('========================= Start Main =========================')
 
-    config['num_gpus'] = torch.cuda.device_count()
-    logger.info(f'=====> Number of GPUs: {config["num_gpus"]}')
 
-    Method = getattr(methods, config['method'])(config, logger)
-    Method.run()
+        # save config file
+        logger.info('=====> Saving config file')
+        with open(os.path.join(args.output_dir, 'config.yaml'), 'w') as f:
+            yaml.dump(config, f, default_flow_style=False)
+        logger.info('=====> Config file saved')
 
-    logger.info('========================= End Main =========================')
+        # Choose random seed if not provided
+        if config['seed'] is None:
+            config['seed'] = secrets.randbelow(5000) 
+
+        init_seeds(config["seed"])
+        # logger.info(f'=====> Random seed initialized to {config["seed"]}')
+        logger.info(f'=====> Wandb initialized')
+        run = wandb.init(config=config,project="Efficient Selection")
+        re_nest_configs(run.config)
+        wandb.define_metric('acc', 'max')
+        run.name = method + '_' + config['output_dir'].split('/')[-2]
+
+        wandb_local_path = wandb.run.dir
+        # save wandb_local_path to wandb_local_path.txt
+        with open(os.path.join(args.output_dir, 'wandb_local_path.txt'), 'w') as f:
+            f.write(wandb_local_path)
+            f.close()
+
+        config['num_gpus'] = torch.cuda.device_count()
+        logger.info(f'=====> Number of GPUs: {config["num_gpus"]}')
+
+        Method = getattr(methods, method)(config, logger)
+        Method.run()
+
+        logger.info('========================= End Main =========================')
+
+        logger.wandb_finish()
+
 
 
 if __name__ == '__main__':

@@ -1,31 +1,35 @@
 output_dir: null
-
-method: Full
+seed: None
+methods: 
+  - Full
+  - Uniform
+  - DivBS
 method_opt:
-  # epoch_selection: True
+  epoch_selection: False
   iter_selection: True
   num_epochs_per_selection: 1
-  ratio: 1.0
+  ratio: 0.1
   balance: False
   ratio_scheduler: constant
-  warmup_epochs: 0
+  loss_for_selection: CE
+  warmup_epochs: 5
   replace: False
 
 dataset:
-  name: CIFAR10
+  name: CIFAR100
   root: ./_CIFAR
 
 networks:
   type: ResNet
   params: 
     m_type: 'resnet18'
-    num_classes: 10
+    num_classes: 100
 
 training_opt:
   num_epochs: 200
-  num_steps: 30000000
+  num_steps: 300000
   num_data_workers: 4
-  batch_size: 32
+  batch_size: 320
   test_batch_size: 512
   loss_type: CrossEntropy
   loss_params: {}
@@ -35,4 +39,5 @@ training_opt:
   scheduler_params: {endlr: 0.0001, gamma: 0.1, step_size: 35, milestones: [120, 160]}
 logger_opt:
   print_iter: 100
+
 

@@ -9,6 +9,8 @@ method_opt:
   balance: False
   ratio_scheduler: constant
   reduce_dim: 4
+  warmup_epochs: 0
+  replace: False
 
 dataset:
   name: TinyImageNet
