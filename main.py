@@ -54,6 +54,9 @@ def main():
     if args.log_file is not None:
         config['log_file'] = args.log_file
     
+    # Choose random seed if not provided
+    if config['seed'] is None:
+        config['seed'] = secrets.randbelow(5000) 
 
     if args.base_dir is None:
         args.base_dir = './exp/'
@@ -126,9 +129,6 @@ def main():
             yaml.dump(config, f, default_flow_style=False)
         logger.info('=====> Config file saved')
 
-        # Choose random seed if not provided
-        if config['seed'] is None:
-            config['seed'] = secrets.randbelow(5000) 
 
         init_seeds(config["seed"])
         # logger.info(f'=====> Random seed initialized to {config["seed"]}')
