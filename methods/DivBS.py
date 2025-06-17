@@ -8,12 +8,6 @@ class DivBS(SelectionMethod):
     def __init__(self, config, logger):
         super().__init__(config, logger)
         self.balance = config['method_opt']['balance']
-        self.iter_selection = config['method_opt']['iter_selection'] if 'iter_selection' in config['method_opt'] else False
-        self.epoch_selection = config['method_opt']['epoch_selection'] if 'epoch_selection' in config['method_opt'] else False
-        assert (self.iter_selection and not self.epoch_selection) or (not self.iter_selection and self.epoch_selection), 'there should be one and only one True in iter_selection and epoch_selection'
-
-        self.num_epochs_per_selection = config['method_opt']['num_epochs_per_selection'] if 'num_epochs_per_selection' in config['method_opt'] else 1
-
         self.ratio = config['method_opt']['ratio']
         self.ratio_scheduler = config['method_opt']['ratio_scheduler'] if 'ratio_scheduler' in config['method_opt'] else 'constant'
         self.warmup_epochs = config['method_opt']['warmup_epochs'] if 'warmup_epochs' in config['method_opt'] else 0
@@ -99,23 +93,19 @@ class DivBS(SelectionMethod):
         return index_selected
 
     def before_batch(self, i, inputs, targets, indexes, epoch):
-        if self.iter_selection:
-            ratio = self.get_ratio_per_epoch(epoch)
-            if ratio == 1.0:
-                if i == 0:
-                    self.logger.info('using all samples')
-                return super().before_batch(i, inputs, targets, indexes, epoch)
-            else:
-                if i == 0:
-                    self.logger.info(f'balance: {self.balance}')
-                    self.logger.info('selecting samples for epoch {}, ratio {}'.format(epoch, ratio))
-            grad_mean, grad = self.calc_grad(inputs, targets, indexes)
-            selected_num_samples = int(inputs.shape[0] * ratio)
-            indices = self.greedy_selection(grad_mean, grad, selected_num_samples)
-            inputs = inputs[indices]
-            targets = targets[indices]
-            indexes = indexes[indices]
-            return inputs, targets, indexes
-
-        else:
+        ratio = self.get_ratio_per_epoch(epoch)
+        if ratio == 1.0:
+            if i == 0:
+                self.logger.info('using all samples')
             return super().before_batch(i, inputs, targets, indexes, epoch)
+        else:
+            if i == 0:
+                self.logger.info(f'balance: {self.balance}')
+                self.logger.info('selecting samples for epoch {}, ratio {}'.format(epoch, ratio))
+        grad_mean, grad = self.calc_grad(inputs, targets, indexes)
+        selected_num_samples = int(inputs.shape[0] * ratio)
+        indices = self.greedy_selection(grad_mean, grad, selected_num_samples)
+        inputs = inputs[indices]
+        targets = targets[indices]
+        indexes = indexes[indices]
+        return inputs, targets, indexes

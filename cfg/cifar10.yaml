@@ -5,16 +5,10 @@ methods:
   - Uniform
   - DivBS
 method_opt:
-  epoch_selection: False
-  iter_selection: True
-  num_epochs_per_selection: 1
   ratio: 0.1
   balance: False
   ratio_scheduler: constant
   warmup_epochs: 0
-  replace: False
-  
-
 
 dataset:
   name: CIFAR10
