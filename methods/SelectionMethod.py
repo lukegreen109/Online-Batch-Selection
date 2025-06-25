@@ -18,7 +18,6 @@ class SelectionMethod(object):
         model_args = config['networks']['params']
         self.training_opt = config['training_opt']
         self.model = getattr(models, model_type)(**model_args)
-        # print(self.model)
         self.start_epoch = 0
         self.best_acc = 0
         self.best_epoch = 0
@@ -44,15 +43,14 @@ class SelectionMethod(object):
         
 
         # data
-        # data = get_data(config, logger)
         data_info = getattr(data, config['dataset']['name'])(config, logger)
         self.num_classes = data_info['num_classes']
         self.train_dset = data_info['train_dset']
         self.test_loader = data_info['test_loader']
         self.num_train_samples = data_info['num_train_samples']
 
-        self.epochs = config['training_opt']['num_epochs'] if 'num_epochs' in config['training_opt'] else 2000
-        self.num_steps = config['training_opt']['num_steps'] if 'num_steps' in config['training_opt'] else 1000000
+        self.epochs = config['training_opt']['num_epochs'] if 'num_epochs' in config['training_opt'] else None
+        self.num_steps = config['training_opt']['num_steps'] if 'num_steps' in config['training_opt'] else None
         if self.epochs is None and self.num_steps is None:
             raise ValueError('Must specify either num_epochs or num_steps in training_opt')
         self.num_data_workers = config['training_opt']['num_data_workers']
