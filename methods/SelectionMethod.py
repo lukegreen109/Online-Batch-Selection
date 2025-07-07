@@ -7,6 +7,7 @@ import time
 from .method_utils import *
 import data
 
+
 class SelectionMethod(object):
     method_name = 'SelectionMethod'
     def __init__(self, config, logger):
@@ -43,11 +44,11 @@ class SelectionMethod(object):
         
 
         # data
-        data_info = getattr(data, config['dataset']['name'])(config, logger)
-        self.num_classes = data_info['num_classes']
-        self.train_dset = data_info['train_dset']
-        self.test_loader = data_info['test_loader']
-        self.num_train_samples = data_info['num_train_samples']
+        self.data_info = getattr(data, config['dataset']['name'])(config, logger)
+        self.num_classes = self.data_info['num_classes']
+        self.train_dset = self.data_info['train_dset']
+        self.test_loader = self.data_info['test_loader']
+        self.num_train_samples = self.data_info['num_train_samples']
 
         self.epochs = config['training_opt']['num_epochs'] if 'num_epochs' in config['training_opt'] else None
         self.num_steps = config['training_opt']['num_steps'] if 'num_steps' in config['training_opt'] else None
@@ -60,6 +61,7 @@ class SelectionMethod(object):
         self.criterion = create_criterion(config, logger)
 
         self.need_features = False
+                
 
         
     def resume(self, resume_path):
@@ -144,6 +146,7 @@ class SelectionMethod(object):
             targets = datas['target'].cuda()
             indexes = datas['index']
             inputs, targets, indexes = self.before_batch(i, inputs, targets, indexes, epoch)
+            ########### Might need to change this to not use features
             outputs, features = self.model(inputs, self.need_features) if self.need_features else (self.model(inputs, False), None)
             loss = self.criterion(outputs, targets)
             self.while_update(outputs, loss, targets, epoch, features, indexes, batch_idx=i, batch_size=self.batch_size)

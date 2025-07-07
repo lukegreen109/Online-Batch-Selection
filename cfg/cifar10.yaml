@@ -1,14 +1,26 @@
 output_dir: null
-seed: None
+seed: 97
 methods: 
   - Full
   - Uniform
   - DivBS
+  - Bayesian
 method_opt:
   ratio: 0.1
   balance: False
   ratio_scheduler: constant
   warmup_epochs: 0
+
+bayesian:
+  adaptive_alpha: False
+  alpha: 0.3
+  tau: 4
+  prior_precision: 10
+  ema_momentum: 0.99
+  num_effective_data: 1000
+  laplace_momentum: 0.99
+  n_f_samples: 256
+  clip_architecture: 'ViT-B/16'
 
 dataset:
   name: CIFAR10
