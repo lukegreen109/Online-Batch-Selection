@@ -146,8 +146,8 @@ class SelectionMethod(object):
             targets = datas['target'].cuda()
             indexes = datas['index']
             inputs, targets, indexes = self.before_batch(i, inputs, targets, indexes, epoch)
-            ########### Might need to change this to not use features
-            outputs, features = self.model(inputs, self.need_features) if self.need_features else (self.model(inputs, False), None)
+            ####### Not sure if Bayesian can handle features
+            outputs, features = self.model(x=inputs, need_features=self.need_features, targets=targets) if self.need_features else (self.model(x=inputs, need_features=False, targets=targets), None)
             loss = self.criterion(outputs, targets)
             self.while_update(outputs, loss, targets, epoch, features, indexes, batch_idx=i, batch_size=self.batch_size)
             self.optimizer.zero_grad()

@@ -41,7 +41,11 @@ class KFCALLAWrapper(nn.Module):
             self.input_features_of_last_layer = input[0]
         return hook
 
-    def forward(self, x, selection_pass=False, y=None):
+    def forward(self, x, **kwargs):
+        # parameters
+        selection_pass = kwargs.get('selection_pass', False)
+        y = kwargs.get('targets', None)
+
         bs = x.shape[0]
         if selection_pass:
             self.net.apply(_freeze)
@@ -60,16 +64,16 @@ class KFCALLAWrapper(nn.Module):
                 U = np.sqrt(self.num_effective_data) * self.G
                 U.diagonal().add_(np.sqrt(self.prior_precision))
                 L_U = psd_safe_cholesky(U)
-                
                 V_inv = torch.cholesky_inverse(L_V)
+
                 stds = (self.input_features_of_last_layer @ V_inv * self.input_features_of_last_layer).sum(-1).clamp(min=1e-6).sqrt()
                 L_f = stds.view(-1, 1, 1) * L_U.T.inverse()
                 f_samples = out[:, None, :] + torch.randn((bs, self.n_f_samples, out.shape[-1])).to(x.device) @ L_f
                 return f_samples, out, stds, torch.linalg.matrix_norm(L_U.T.inverse(), ord=2)
         elif self.training:
-            assert y is not None
+            assert y is not None, "Targets must be provided during training"
             with torch.no_grad():
-                
+
                 feature_cov = self.input_features_of_last_layer.T @ self.input_features_of_last_layer / bs
                 if self.num_data.item() == 0:
                     self.A.data.copy_(feature_cov)

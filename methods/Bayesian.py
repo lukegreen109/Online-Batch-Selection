@@ -33,15 +33,14 @@ class Bayesian(SelectionMethod):
             else False
         )
 
-        # Haven't added these to config yet
         self.ema_net = EMA(
             self.model,
             beta=config["bayesian"]["ema_momentum"],
             update_after_step=0,
             update_every=5,
         )
-
         self.ema_net.eval()
+
         self.model = KFCALLAWrapper(
             net=self.model,
             num_effective_data=config["bayesian"]["num_effective_data"],
@@ -49,6 +48,7 @@ class Bayesian(SelectionMethod):
             n_f_samples=config["bayesian"]["n_f_samples"],
             momentum=config["bayesian"]["laplace_momentum"],
         )
+        self.model = self.model.cuda()
 
         # See SelectionMethod for data_info; need for clip classifier
         self.template = self.data_info["template"]
@@ -72,6 +72,7 @@ class Bayesian(SelectionMethod):
         assert "adaptive_alpha" in config["bayesian"], (
             "Bayesian adaptive_alpha parameter is not set in config"
         )
+        self.alpha = config["bayesian"]["alpha"]
         self.adaptive_alpha = config["bayesian"]["adaptive_alpha"]
 
     def get_ratio_per_epoch(self, epoch):
@@ -107,7 +108,7 @@ class Bayesian(SelectionMethod):
         if self.adaptive_alpha:
             bayes_loss = self.criterion(outputs, targets).item()
             clip_loss = self.criterion(clip_outputs, targets).item()
-            alpha = clip_loss / (bayes_loss + clip_loss)
+            self.alpha = clip_loss / (bayes_loss + clip_loss)
 
         first_term = (
             -F.cross_entropy(
@@ -122,9 +123,9 @@ class Bayesian(SelectionMethod):
         third_term = -F.cross_entropy(
             f_samples.softmax(-1).mean(1).log(), targets, reduction="none"
         )
-        select_obj = alpha * first_term + (1 - alpha) * second_term - third_term
+        select_obj = self.alpha * first_term + (1 - self.alpha) * second_term - third_term
         _, index_selected = torch.topk(select_obj, number_to_select)
-        return index_selected
+        return index_selected.cpu().numpy()
 
     def before_batch(self, i, inputs, targets, indexes, epoch):
         ratio = self.get_ratio_per_epoch(epoch)

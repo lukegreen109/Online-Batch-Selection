@@ -94,7 +94,10 @@ class ResNet(nn.Module):
             self.in_planes = planes * block.expansion
         return nn.Sequential(*layers)
 
-    def forward(self, x, feature=False):
+    def forward(self, x, **kwargs):
+
+        feature = kwargs.get('need_features', False)
+
         out = F.relu(self.bn1(self.conv1(x)))
         out = self.layer1(out)
         out = self.layer2(out)
@@ -111,6 +114,7 @@ class ResNet(nn.Module):
             return out, feat
         else:
             return out
+        
     def feat_nograd_forward(self, x):
         with torch.no_grad():
             out = F.relu(self.bn1(self.conv1(x)))
@@ -176,7 +180,10 @@ def create_model(m_type='resnet101',num_classes=1000, pretrained = False):
         model.fc = nn.Linear(model.fc.in_features, num_classes)
         # model.fc = nn.Identity()
         # re-defined forward function
-        def forward(self, x, feature=False):
+        def forward(self, x, **kwargs):
+            
+            need_features = kwargs.get('need_features', False)
+
             x = self.conv1(x)
             x = self.bn1(x)
             x = self.relu(x)
@@ -192,7 +199,7 @@ def create_model(m_type='resnet101',num_classes=1000, pretrained = False):
             x = self.fc(feat)
             # feat= self.model(x)
             # out = self.fc(feat)
-            if feature:
+            if need_features:
                 return x, feat
             else:
                 return x

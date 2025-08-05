@@ -36,7 +36,10 @@ class ResNet(nn.Module):
         self.avgpool = model.avgpool
         self.fc = nn.Linear(model.fc.in_features, num_classes)
         # self.model.fc = nn.Identity()
-    def forward(self, x, feature=False):
+    def forward(self, x, **kwargs):
+        
+        need_features = kwargs.get('need_features', False)
+        
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
@@ -48,7 +51,7 @@ class ResNet(nn.Module):
         x = self.avgpool(x)
         feat = torch.flatten(x, 1)
         x = self.fc(feat)
-        if feature:
+        if need_features:
             return x, feat
         else:
             return x
