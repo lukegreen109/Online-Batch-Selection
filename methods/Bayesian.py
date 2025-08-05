@@ -178,4 +178,4 @@ class Bayesian(SelectionMethod):
         self.logger.info(f'=====> Validation Accuracy: {acc:.4f}')
         self.logger.info(f'=====> EMA Validation Accuracy: {ema_acc:.4f}')
 
-        return max(acc, ema_acc)
+        return acc
