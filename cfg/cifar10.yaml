@@ -1,8 +1,6 @@
 output_dir: null
 seed: 17
 methods: 
-  - DivBS
-  - Uniform
   - Bayesian
 method_opt:
   ratio: 0.1

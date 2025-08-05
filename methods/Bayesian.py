@@ -145,3 +145,37 @@ class Bayesian(SelectionMethod):
         targets = targets[indices]
         indexes = indexes[indices]
         return inputs, targets, indexes
+
+    def after_batch(self, i,inputs, targets, indexes,outputs):
+        # Need to update after each step
+        self.ema_net.update()
+
+    def test(self):
+        # customize to use ema model for testing
+        self.logger.info('=====> Start Validation')
+        model = self.model.module if hasattr(self.model, 'module') else self.model
+        ema_model = self.ema_net.ema_module if hasattr(self.ema_net, 'ema_module') else self.ema_net
+        model.eval()
+        all_preds = []
+        all_ema_preds = []
+        all_labels = []
+        with torch.no_grad():
+            for i, datas in enumerate(self.test_loader):
+                inputs = datas['input'].cuda()
+                targets = datas['target'].cuda()
+                outputs = model(inputs)
+                ema_outputs = ema_model(inputs)
+                ema_preds = torch.argmax(ema_outputs, dim=1)
+                preds = torch.argmax(outputs, dim=1)
+                all_preds.append(preds.cpu().numpy())
+                all_ema_preds.append(ema_preds.cpu().numpy())
+                all_labels.append(targets.cpu().numpy())
+        all_preds = np.concatenate(all_preds)
+        all_ema_preds = np.concatenate(all_ema_preds)
+        all_labels = np.concatenate(all_labels)
+        acc = np.mean(all_preds == all_labels)
+        ema_acc = np.mean(all_ema_preds == all_labels)
+        self.logger.info(f'=====> Validation Accuracy: {acc:.4f}')
+        self.logger.info(f'=====> EMA Validation Accuracy: {ema_acc:.4f}')
+
+        return max(acc, ema_acc)

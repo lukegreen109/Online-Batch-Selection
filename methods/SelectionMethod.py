@@ -203,7 +203,7 @@ class SelectionMethod(object):
             for i, datas in enumerate(self.test_loader):
                 inputs = datas['input'].cuda()
                 targets = datas['target'].cuda()
-                outputs = self.model(inputs)
+                outputs = model(inputs)
                 preds = torch.argmax(outputs, dim=1)
                 all_preds.append(preds.cpu().numpy())
                 all_labels.append(targets.cpu().numpy())

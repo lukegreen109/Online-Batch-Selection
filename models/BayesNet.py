@@ -109,8 +109,6 @@ class CLIPZeroShotClassifier(nn.Module):
 
         self.register_buffer('old_mean', torch.Tensor(mean_std.mean[dataset]))
         self.register_buffer('old_std', torch.Tensor(mean_std.std[dataset]))
-        # self.register_buffer('old_mean', torch.Tensor([0.485, 0.456, 0.406]))
-        # self.register_buffer('old_std', torch.Tensor([0.229, 0.224, 0.225]))
         
         self.register_buffer('new_mean', torch.Tensor([0.48145466, 0.4578275, 0.40821073]))
         self.register_buffer('new_std', torch.Tensor([0.26862954, 0.26130258, 0.27577711]))
