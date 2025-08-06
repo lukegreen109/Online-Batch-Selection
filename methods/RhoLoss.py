@@ -6,9 +6,8 @@ import data
 import torch
 import numpy as np
 import torch
-import copy
+import os
 import torch.nn.functional as F
-import torch.nn as nn
 from torch.utils.data import random_split, DataLoader
 
 class RhoLoss(SelectionMethod):
@@ -38,15 +37,11 @@ class RhoLoss(SelectionMethod):
         self.current_train_indices = np.arange(self.num_train_samples)
         self.reduce_dim = config['method_opt']['reduce_dim'] if 'reduce_dim' in config['method_opt'] else False
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        # data
-        self.data_info = getattr(data, config['dataset']['name'])(config, logger)
-        self.num_classes = self.data_info['num_classes']
-        self.train_dset = self.data_info['train_dset']
-        self.test_loader = self.data_info['test_loader']
-        self.num_train_samples = self.data_info['num_train_samples']
+        self.holdout_model_type = config['rholoss']['networks']['type']
+        self.holdout_model_args = config['rholoss']['networks']['params']
+        self.holdout_epochs = config['rholoss']['holdout_num_epochs']
         self.holdout_model = self.setup_holdout_model(config, logger)
-
+    
     def setup_holdout_model(self, config, logger):
         """"Retrieve the holdout model for computing irreducible loss.
         Args:
@@ -56,31 +51,29 @@ class RhoLoss(SelectionMethod):
         holdout_model_path = config['rholoss']['holdout_model_path']
 
         # Create model
-        holdout_model_type = config['rholoss']['networks']['type']
-        holdout_model_args = config['rholoss']['networks']['params']
-        holdout_model = getattr(models, holdout_model_type)(**holdout_model_args)
-        holdout_model.to(self.device)
+        holdout_model = getattr(models, self.holdout_model_type)(**self.holdout_model_args)
+        self.holdout_model = holdout_model
+        self.holdout_model.to(self.device)
 
         if holdout_model_path == 'None':
             # Set up holdout model
-            holdout_percentage = config['rholoss']['holdout_percentage']
-            holdout_batch_size = config['rholoss']['holdout_batch_size']
+            # holdout_percentage = config['rholoss']['holdout_percentage']
+            # holdout_batch_size = config['rholoss']['holdout_batch_size']
 
-            # Split data into main model and holdout model
-            holdout_len = int(self.num_train_samples * holdout_percentage)
-            main_len = int(self.num_train_samples - holdout_len)
-            main_model_dataset, holdout_dataset = random_split(self.train_dset, [main_len, holdout_len])
+            # # Split data into main model and holdout model
+            # holdout_len = int(self.num_train_samples * holdout_percentage)
+            # main_len = int(self.num_train_samples - holdout_len)
+            # main_model_dataset, holdout_dataset = random_split(self.train_dset, [main_len, holdout_len])
 
-            self.train_dset = main_model_dataset
-            self.num_train_samples = main_len
-            # Create DataLoader
-            holdout_dataloader = DataLoader(holdout_dataset, batch_size=holdout_batch_size, shuffle=False)
+            # self.train_dset = main_model_dataset
+            # self.num_train_samples = main_len
+            # # Create DataLoader
+            # holdout_dataloader = DataLoader(holdout_dataset, batch_size=holdout_batch_size, shuffle=False)
 
             # Train holdout model
-            holdout_epochs = config['rholoss']['holdout_num_epochs']
-            self.train_holdout_model(config, logger, holdout_model, holdout_dataloader, holdout_epochs)
+            best_model = self.train_holdout_model(config, logger)
 
-            return holdout_model
+            return best_model
         else:
             try:
                 logger.info(f"Loading holdout model from {holdout_model_path}")
@@ -89,7 +82,7 @@ class RhoLoss(SelectionMethod):
             except FileNotFoundError:
                 raise ValueError("Invalid holdout_model configuration.")
 
-    def train_holdout_model(self, config, logger, holdout_model, holdout_dataloader, holdout_epochs):
+    def train_holdout_model(self, config, logger):
         """
         Train the holdout model for estimating irreducible loss.
 
@@ -100,25 +93,27 @@ class RhoLoss(SelectionMethod):
             holdout_epochs (int): Number of epochs to train the holdout model.
         """
 
-        holdout_optimizer = create_holdout_optimizer(holdout_model, config)
+        holdout_optimizer = create_holdout_optimizer(self.holdout_model, config)
         holdout_criterion = create_holdout_criterion(config, logger)
 
-        total_batch = len(holdout_dataloader)
+        total_batch = len(self.holdout_dataloader)
 
-        logger.info(f"[Holdout Model] Starting training for {holdout_epochs} epochs on {total_batch} batches per epoch.")
+        logger.info(f"[Holdout Model] Starting training for {self.holdout_epochs} epochs on {total_batch} batches per epoch.")
 
-        holdout_model.train()
-        for epoch in range(holdout_epochs):
+        self.best_loss = float('inf')
+        self.best_model_path = None
+
+        self.holdout_model.train()
+        for epoch in range(self.holdout_epochs):
             epoch_loss = 0.0
-            for i, datas in enumerate(holdout_dataloader):
+            for i, datas in enumerate(self.holdout_dataloader):
                 inputs = datas['input'].to(self.device)
                 targets = datas['target'].to(self.device)
-                indexes = datas['index'].to(self.device)
-
+                
                 with torch.set_grad_enabled(True):
-                    holdout_optimizer.zero_grad()
-                    outputs = holdout_model(inputs)
+                    outputs = self.holdout_model(inputs)
                     holdout_loss = holdout_criterion(outputs, targets)
+                    holdout_optimizer.zero_grad()
                     holdout_loss.backward()
                     holdout_optimizer.step()
 
@@ -126,15 +121,52 @@ class RhoLoss(SelectionMethod):
                 epoch_loss += batch_loss
 
                 if (i + 1) % 50 == 0 or (i + 1) == total_batch:
-                    logger.info(f"[Holdout Model][Epoch {epoch+1}/{holdout_epochs}] "
+                    logger.info(f"[Holdout Model][Epoch {epoch+1}/{self.holdout_epochs}] "
                                 f"Batch {i+1}/{total_batch}, Batch Loss: {batch_loss:.4f}")
 
             avg_epoch_loss = epoch_loss / total_batch
-            logger.info(f"[Holdout Model][Epoch {epoch+1}/{holdout_epochs}] "
+            logger.info(f"[Holdout Model][Epoch {epoch+1}/{self.holdout_epochs}] "
                         f"Average Loss: {avg_epoch_loss:.4f}")
+            
+            # Track lowest loss and save best model path
+            # Evaluate on validation set if available
+            self.holdout_model.eval()
+            val_loss = 0.0
+            val_batches = 0
+            with torch.no_grad():
+                for val_datas in self.test_loader:
+                    val_inputs = val_datas['input'].to(self.device)
+                    val_targets = val_datas['target'].to(self.device)
+                    outputs = self.holdout_model(val_inputs)
+                    loss = holdout_criterion(outputs, val_targets)
+                    val_loss += loss.item()
+                    val_batches += 1
+            avg_val_loss = val_loss / max(1, val_batches)
+            logger.info(f"[Holdout Model][Epoch {epoch+1}/{self.holdout_epochs}] Validation Loss: {avg_val_loss:.4f}")
 
+            # Save best model if average loss improves
+            if avg_epoch_loss < self.best_loss:
+                self.best_loss = avg_epoch_loss
+                best_model_path = os.path.join(self.config['output_dir'], f'best_holdout.pth.tar')
+                torch.save(self.holdout_model.state_dict(), best_model_path)
+                self.best_model_path = best_model_path
+                logger.info(f"Best holdout model updated at epoch {epoch+1}")
+        
+        # Save model state with least validation loss
+        best_model_state = torch.load(self.best_model_path, map_location=self.device)
+        
+        # Create a new model instance
+        holdout_model = getattr(models, self.holdout_model_type)(**self.holdout_model_args)
+
+        # Load the weights into the new model
+        holdout_model.load_state_dict(best_model_state)
+
+        # Freeze parameters
+        for param in holdout_model.parameters():
+            param.requires_grad = False
+        holdout_model.to(self.device)
+        holdout_model.eval()
         return holdout_model
-
 
     def get_ratio_per_epoch(self, epoch):
         if epoch < self.warmup_epochs:

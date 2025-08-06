@@ -6,6 +6,7 @@ import numpy as np
 import time
 from .method_utils import *
 import data
+from torch.utils.data import DataLoader, random_split
 
 
 class SelectionMethod(object):
@@ -46,9 +47,25 @@ class SelectionMethod(object):
         # data
         self.data_info = getattr(data, config['dataset']['name'])(config, logger)
         self.num_classes = self.data_info['num_classes']
+        
         self.train_dset = self.data_info['train_dset']
         self.test_loader = self.data_info['test_loader']
         self.num_train_samples = self.data_info['num_train_samples']
+        print(f'Number of training samples: {self.num_train_samples}')
+        if config['dataset']['include_holdout'] == True:
+            holdout_percentage = config['rholoss']['holdout_percentage']
+            holdout_batch_size = config['rholoss']['holdout_batch_size']
+
+            # Split data into main model and holdout model
+            holdout_len = int(self.num_train_samples * holdout_percentage)
+            main_len = int(self.num_train_samples - holdout_len)
+            print(f'Holdout dataset size: {holdout_len}, Main dataset size: {main_len}')
+            main_model_dataset, holdout_dataset = random_split(self.train_dset, [main_len, holdout_len], generator=torch.Generator().manual_seed(config['seed']))
+
+            self.train_dset = main_model_dataset
+            self.num_train_samples = main_len
+            # Create DataLoader
+            self.holdout_dataloader = DataLoader(holdout_dataset, batch_size=holdout_batch_size, shuffle=False)
 
         self.epochs = config['training_opt']['num_epochs'] if 'num_epochs' in config['training_opt'] else None
         self.num_steps = config['training_opt']['num_steps'] if 'num_steps' in config['training_opt'] else None
