@@ -1,5 +1,5 @@
 output_dir: null
-seed: 17
+seed: 20
 methods: 
   - Bayesian
 method_opt:
@@ -10,11 +10,10 @@ method_opt:
 
 bayesian:
   adaptive_alpha: False
-  alpha: 0.3
+  alpha: 0.2
   tau: 4
   prior_precision: 10
-  ema_momentum: 0.99
-  num_effective_data: 1000
+  num_effective_data: 200
   laplace_momentum: 0.99
   n_f_samples: 256
   clip_architecture: 'ViT-B/16'
@@ -38,7 +37,7 @@ rholoss:
 dataset:
   name: CIFAR10
   root: ./_CIFAR
-  #should we add a half dataset option?
+  include_holdout: True
 
 networks:
   type: ResNet
@@ -46,9 +45,11 @@ networks:
     m_type: 'resnet18'
     num_classes: 10
 
+ema_momentum: 0.99
+
 training_opt:
-  num_epochs: 50
-  num_steps: 100000
+  num_epochs: 100
+  # num_steps: 100000
   num_data_workers: 4
   batch_size: 320
   test_batch_size: 512

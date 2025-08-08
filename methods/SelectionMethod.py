@@ -6,6 +6,9 @@ import numpy as np
 import time
 from .method_utils import *
 import data
+from torch.utils.data import DataLoader, random_split
+from ema_pytorch import EMA
+
 
 
 class SelectionMethod(object):
@@ -41,7 +44,14 @@ class SelectionMethod(object):
         if config['training_opt']['resume'] is not None:
             self.resume(config['training_opt']['resume'])
         
-        
+        # create EMA model
+        self.ema_net = EMA(
+            self.model,
+            beta=config["ema_momentum"],
+            update_after_step=0,
+            update_every=5,
+        )
+        self.ema_net.eval()
 
         # data
         self.data_info = getattr(data, config['dataset']['name'])(config, logger)
@@ -49,6 +59,22 @@ class SelectionMethod(object):
         self.train_dset = self.data_info['train_dset']
         self.test_loader = self.data_info['test_loader']
         self.num_train_samples = self.data_info['num_train_samples']
+
+        # If including holdout dataset for rholoss holdout model
+        if config['dataset']['include_holdout'] == True:
+            holdout_percentage = config['rholoss']['holdout_percentage']
+            holdout_batch_size = config['rholoss']['holdout_batch_size']
+
+            # Split data into main model and holdout model
+            holdout_len = int(self.num_train_samples * holdout_percentage)
+            main_len = int(self.num_train_samples - holdout_len)
+            main_model_dataset, holdout_dataset = random_split(self.train_dset, [main_len, holdout_len], generator=torch.Generator().manual_seed(config['seed']))
+
+            self.train_dset = main_model_dataset
+            self.num_train_samples = main_len
+
+            self.holdout_dataset = holdout_dataset
+            self.holdout_dataloader = DataLoader(holdout_dataset, batch_size=holdout_batch_size, shuffle=True)
 
         self.epochs = config['training_opt']['num_epochs'] if 'num_epochs' in config['training_opt'] else None
         self.num_steps = config['training_opt']['num_steps'] if 'num_steps' in config['training_opt'] else None
@@ -98,7 +124,7 @@ class SelectionMethod(object):
             list_of_train_idx = self.before_epoch(epoch)
             self.train(epoch, list_of_train_idx)
             self.after_epoch(epoch)
-            if self.total_step >= self.num_steps:
+            if self.num_steps is not None and self.total_step >= self.num_steps:
                 self.logger.info(f'Finish training for {self.method_name} because num_steps {self.num_steps} is reached')
                 break
 
@@ -123,7 +149,8 @@ class SelectionMethod(object):
         return inputs, targets, indexes
     
     def after_batch(self, i,inputs, targets, indexes,outputs):
-        pass
+        self.ema_net.update()
+
 
     def train(self, epoch, list_of_train_idx):
         # train for one epoch
@@ -146,7 +173,6 @@ class SelectionMethod(object):
             targets = datas['target'].cuda()
             indexes = datas['index']
             inputs, targets, indexes = self.before_batch(i, inputs, targets, indexes, epoch)
-            ####### Not sure if Bayesian can handle features
             outputs, features = self.model(x=inputs, need_features=self.need_features, targets=targets) if self.need_features else (self.model(x=inputs, need_features=False, targets=targets), None)
             loss = self.criterion(outputs, targets)
             self.while_update(outputs, loss, targets, epoch, features, indexes, batch_idx=i, batch_size=self.batch_size)
@@ -167,9 +193,8 @@ class SelectionMethod(object):
         # test
         now = time.time()
         self.logger.wandb_log({'loss': loss.item(), 'epoch': epoch, 'lr': self.optimizer.param_groups[0]['lr'], self.training_opt['loss_type']: loss.item()})
-        val_acc = self.test()
-        self.logger.wandb_log({'val_acc': val_acc, 'epoch': epoch, 'total_time': now - self.run_begin_time, 'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'best_val_acc': max(self.best_acc, val_acc)})
-        # self.logger.info(f'=====> Best val acc: {max(self.best_acc, val_acc):.4f}, Current val acc: {val_acc:.4f}')
+        val_acc, ema_val_acc = self.test()
+        self.logger.wandb_log({'val_acc': val_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'total_time': now - self.run_begin_time, 'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'best_val_acc': max(self.best_acc, val_acc)})
         self.logger.info(f'=====> Time: {now - self.run_begin_time:.4f} s, Time this epoch: {now - epoch_begin_time:.4f} s, Total step: {self.total_step}')
             # save model
         self.logger.info('=====> Save model')
@@ -194,23 +219,32 @@ class SelectionMethod(object):
         pass
 
     def test(self):
+        # customize to use ema model for testing
         self.logger.info('=====> Start Validation')
         model = self.model.module if hasattr(self.model, 'module') else self.model
+        ema_model = self.ema_net.ema_module if hasattr(self.ema_net, 'ema_module') else self.ema_net
         model.eval()
         all_preds = []
+        all_ema_preds = []
         all_labels = []
         with torch.no_grad():
             for i, datas in enumerate(self.test_loader):
                 inputs = datas['input'].cuda()
                 targets = datas['target'].cuda()
                 outputs = model(inputs)
+                ema_outputs = ema_model(inputs)
+                ema_preds = torch.argmax(ema_outputs, dim=1)
                 preds = torch.argmax(outputs, dim=1)
                 all_preds.append(preds.cpu().numpy())
+                all_ema_preds.append(ema_preds.cpu().numpy())
                 all_labels.append(targets.cpu().numpy())
         all_preds = np.concatenate(all_preds)
+        all_ema_preds = np.concatenate(all_ema_preds)
         all_labels = np.concatenate(all_labels)
         acc = np.mean(all_preds == all_labels)
+        ema_acc = np.mean(all_ema_preds == all_labels)
         self.logger.info(f'=====> Validation Accuracy: {acc:.4f}')
+        self.logger.info(f'=====> EMA Validation Accuracy: {ema_acc:.4f}')
 
-        return acc
+        return acc, ema_acc
 

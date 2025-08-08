@@ -1,7 +1,6 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
-from ema_pytorch import EMA
 
 from .SelectionMethod import SelectionMethod
 from models.BayesNet import CLIPZeroShotClassifier
@@ -33,14 +32,6 @@ class Bayesian(SelectionMethod):
             else False
         )
 
-        self.ema_net = EMA(
-            self.model,
-            beta=config["bayesian"]["ema_momentum"],
-            update_after_step=0,
-            update_every=5,
-        )
-        self.ema_net.eval()
-
         self.model = KFCALLAWrapper(
             net=self.model,
             num_effective_data=config["bayesian"]["num_effective_data"],
@@ -61,9 +52,9 @@ class Bayesian(SelectionMethod):
             config["bayesian"]["clip_architecture"],
         )
 
-        # Should I check to make sure cuda is available? Why is this in eval mode?
         self.clip_clf = self.clip_clf.cuda()
         self.clip_clf.eval()
+        self.test_clip() # Validate CLIP classifier test accuracy
 
         assert "tau" in config["bayesian"], (
             "Bayesian tau parameter is not set in config"
@@ -74,6 +65,24 @@ class Bayesian(SelectionMethod):
         )
         self.alpha = config["bayesian"]["alpha"]
         self.adaptive_alpha = config["bayesian"]["adaptive_alpha"]
+
+    def test_clip(self):
+        self.logger.info('=====> Start CLIP Validation')
+        self.clip_clf.eval()
+        all_preds = []
+        all_labels = []
+        with torch.no_grad():
+            for i, datas in enumerate(self.test_loader):
+                inputs = datas['input'].cuda()
+                targets = datas['target'].cuda()
+                outputs = self.clip_clf(inputs)
+                preds = torch.argmax(outputs, dim=1)
+                all_preds.append(preds.cpu().numpy())
+                all_labels.append(targets.cpu().numpy())
+        all_preds = np.concatenate(all_preds)
+        all_labels = np.concatenate(all_labels)
+        acc = np.mean(all_preds == all_labels)
+        self.logger.info(f'=====> CLIP Validation Accuracy: {acc:.4f}')
 
     def get_ratio_per_epoch(self, epoch):
         if epoch < self.warmup_epochs:
@@ -146,36 +155,36 @@ class Bayesian(SelectionMethod):
         indexes = indexes[indices]
         return inputs, targets, indexes
 
-    def after_batch(self, i,inputs, targets, indexes,outputs):
-        # Need to update after each step
-        self.ema_net.update()
+    # def after_batch(self, i,inputs, targets, indexes,outputs):
+    #     # Need to update after each step
+    #     self.ema_net.update()
 
-    def test(self):
-        # customize to use ema model for testing
-        self.logger.info('=====> Start Validation')
-        model = self.model.module if hasattr(self.model, 'module') else self.model
-        ema_model = self.ema_net.ema_module if hasattr(self.ema_net, 'ema_module') else self.ema_net
-        model.eval()
-        all_preds = []
-        all_ema_preds = []
-        all_labels = []
-        with torch.no_grad():
-            for i, datas in enumerate(self.test_loader):
-                inputs = datas['input'].cuda()
-                targets = datas['target'].cuda()
-                outputs = model(inputs)
-                ema_outputs = ema_model(inputs)
-                ema_preds = torch.argmax(ema_outputs, dim=1)
-                preds = torch.argmax(outputs, dim=1)
-                all_preds.append(preds.cpu().numpy())
-                all_ema_preds.append(ema_preds.cpu().numpy())
-                all_labels.append(targets.cpu().numpy())
-        all_preds = np.concatenate(all_preds)
-        all_ema_preds = np.concatenate(all_ema_preds)
-        all_labels = np.concatenate(all_labels)
-        acc = np.mean(all_preds == all_labels)
-        ema_acc = np.mean(all_ema_preds == all_labels)
-        self.logger.info(f'=====> Validation Accuracy: {acc:.4f}')
-        self.logger.info(f'=====> EMA Validation Accuracy: {ema_acc:.4f}')
+    # def test(self):
+    #     # customize to use ema model for testing
+    #     self.logger.info('=====> Start Validation')
+    #     model = self.model.module if hasattr(self.model, 'module') else self.model
+    #     ema_model = self.ema_net.ema_module if hasattr(self.ema_net, 'ema_module') else self.ema_net
+    #     model.eval()
+    #     all_preds = []
+    #     all_ema_preds = []
+    #     all_labels = []
+    #     with torch.no_grad():
+    #         for i, datas in enumerate(self.test_loader):
+    #             inputs = datas['input'].cuda()
+    #             targets = datas['target'].cuda()
+    #             outputs = model(inputs)
+    #             ema_outputs = ema_model(inputs)
+    #             ema_preds = torch.argmax(ema_outputs, dim=1)
+    #             preds = torch.argmax(outputs, dim=1)
+    #             all_preds.append(preds.cpu().numpy())
+    #             all_ema_preds.append(ema_preds.cpu().numpy())
+    #             all_labels.append(targets.cpu().numpy())
+    #     all_preds = np.concatenate(all_preds)
+    #     all_ema_preds = np.concatenate(all_ema_preds)
+    #     all_labels = np.concatenate(all_labels)
+    #     acc = np.mean(all_preds == all_labels)
+    #     ema_acc = np.mean(all_ema_preds == all_labels)
+    #     self.logger.info(f'=====> Validation Accuracy: {acc:.4f}')
+    #     self.logger.info(f'=====> EMA Validation Accuracy: {ema_acc:.4f}')
 
-        return acc
+    #     return acc

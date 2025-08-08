@@ -153,13 +153,6 @@ def _unfreeze(m):
     if isinstance(m, (nn.BatchNorm2d)):
         m.track_running_stats = True
 
-def setup_seed(seed):
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    np.random.seed(seed)
-    random.seed(seed)
-    #  torch.backends.cudnn.deterministic = True
-
 def psd_safe_cholesky(A, upper=False, out=None, jitter=None):
     """Compute the Cholesky decomposition of A. If A is only p.s.d, add a small jitter to the diagonal.
     Args:
