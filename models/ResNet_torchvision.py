@@ -25,17 +25,19 @@ def create_model(m_type='resnet101',num_classes=1000, pretrained = False):
 class ResNet(nn.Module):
     def __init__(self, model, num_classes):
         super(ResNet, self).__init__()
-        self.conv1 = model.conv1
+        self.conv1 = nn.Conv2d(
+            3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False
+        )
         self.bn1 = model.bn1
         self.relu = model.relu
-        self.maxpool = model.maxpool
+        self.maxpool = nn.Identity()
         self.layer1 = model.layer1
         self.layer2 = model.layer2
         self.layer3 = model.layer3
         self.layer4 = model.layer4
         self.avgpool = model.avgpool
-        self.fc = nn.Linear(model.fc.in_features, num_classes)
-        # self.model.fc = nn.Identity()
+        self.fc = nn.Linear(model.fc.in_features, num_classes, bias=True)
+
     def forward(self, x, **kwargs):
         
         need_features = kwargs.get('need_features', False)

@@ -21,7 +21,12 @@ class KFCALLAWrapper(nn.Module):
         self.momentum = momentum
 
         self.input_features_of_last_layer = None
-        self.fhook = getattr(self.net, last_layer_name).register_forward_hook(self.forward_hook())
+        if isinstance(self.net, torch.nn.DataParallel):
+            last_layer = getattr(self.net.module, last_layer_name)
+        else:
+            last_layer = getattr(self.net, last_layer_name)
+        self.fhook = last_layer.register_forward_hook(self.forward_hook())
+        # self.fhook = getattr(self.net, last_layer_name).register_forward_hook(self.forward_hook())
 
         with torch.no_grad():
             self.net.training = False

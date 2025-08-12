@@ -1,5 +1,5 @@
 output_dir: null
-seed: 20
+seed: 16
 methods: 
   - Bayesian
 method_opt:
@@ -16,7 +16,7 @@ bayesian:
   num_effective_data: 200
   laplace_momentum: 0.99
   n_f_samples: 256
-  clip_architecture: 'ViT-B/16'
+  clip_architecture: 'RN50'
 
 rholoss:
   holdout_model_path: None
@@ -38,9 +38,10 @@ dataset:
   name: CIFAR10
   root: ./_CIFAR
   include_holdout: True
+  # im_size: [32,32]
 
 networks:
-  type: ResNet
+  type: ResNet_torchvision
   params: 
     m_type: 'resnet18'
     num_classes: 10
