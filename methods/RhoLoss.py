@@ -40,8 +40,25 @@ class RhoLoss(SelectionMethod):
         self.holdout_model_type = config['rholoss']['networks']['type']
         self.holdout_model_args = config['rholoss']['networks']['params']
         self.holdout_epochs = config['rholoss']['holdout_num_epochs']
-        self.holdout_model = self.setup_holdout_model(config, logger)
-    
+        # self.holdout_model = self.setup_holdout_model(config, logger)
+        # Load checkpoint
+        ckpt = torch.load(
+            "/home/phancock/Online-Batch-Selection/RhoLoss_pretrained_holdout.ckpt",
+            map_location=self.device,
+            weights_only=False
+        )
+        state_dict = ckpt["state_dict"]
+
+        # Remove "model." prefix from keys if present
+        new_state_dict = {k.replace("model.", ""): v for k, v in state_dict.items()}
+
+        # Create same architecture and load weights
+        self.holdout_model = getattr(models, self.holdout_model_type)(**self.holdout_model_args)
+        self.holdout_model.load_state_dict(new_state_dict)
+        self.holdout_model.to(self.device)
+
+
+
     def setup_holdout_model(self, config, logger):
         """"Retrieve the holdout model for computing irreducible loss.
         Args:
@@ -56,21 +73,6 @@ class RhoLoss(SelectionMethod):
         self.holdout_model.to(self.device)
 
         if holdout_model_path == 'None':
-            # Set up holdout model
-            # holdout_percentage = config['rholoss']['holdout_percentage']
-            # holdout_batch_size = config['rholoss']['holdout_batch_size']
-
-            # # Split data into main model and holdout model
-            # holdout_len = int(self.num_train_samples * holdout_percentage)
-            # main_len = int(self.num_train_samples - holdout_len)
-            # main_model_dataset, holdout_dataset = random_split(self.train_dset, [main_len, holdout_len])
-
-            # self.train_dset = main_model_dataset
-            # self.num_train_samples = main_len
-            # # Create DataLoader
-            # holdout_dataloader = DataLoader(holdout_dataset, batch_size=holdout_batch_size, shuffle=False)
-
-            # Train holdout model
             best_model = self.train_holdout_model(config, logger)
 
             return best_model
@@ -193,34 +195,7 @@ class RhoLoss(SelectionMethod):
         else:
             raise NotImplementedError
 
-    def get_irreducible_loss(self, inputs, targets):
-        """Compute the irreducible loss for the current model.
-        Returns:
-            torch.Tensor: The computed irreducible loss.
-        """
-        # Ensure holdout model is in evaluation mode for inference
-        self.holdout_model.eval()
-        with torch.no_grad():
-            irreducible_loss = F.cross_entropy(self.holdout_model(inputs), targets, reduction='none')
-        return irreducible_loss
-
-    def get_reducible_loss(self, inputs, targets):
-        """Compute the reducible loss for the current model using the holdout model.
-        Args:
-            inputs (torch.Tensor): Input data for which to compute the reducible loss.
-            targets (torch.Tensor): Corresponding target labels for the input data.
-        Returns:
-            torch.Tensor: The computed reducible loss.
-        """
-        self.model.eval() # Ensure main model is in evaluation mode for inference
-        with torch.no_grad():
-            total_loss = F.cross_entropy(self.model(inputs), targets, reduction='none')
-        irreducible_loss = self.get_irreducible_loss(inputs, targets)
-        reducible_loss = total_loss - irreducible_loss
-
-        return reducible_loss
-
-    def selection(self, inputs, targets, selected_num_samples):
+    def reducible_loss_selection(self, inputs, targets, selected_num_samples):
         """Select sub-batch with highest reducible loss.
         Args:
             inputs (torch.Tensor): Input data for the current batch.
@@ -228,7 +203,17 @@ class RhoLoss(SelectionMethod):
         Returns:
             torch.Tensor: Indices of the selected samples.
         """
-        reducible_loss = self.get_reducible_loss(inputs, targets)
+        # Get total loss from main model
+        self.model.eval()
+        with torch.no_grad():
+            total_loss = F.cross_entropy(self.model(inputs), targets, reduction='none')
+        # Get irreducible loss from holdout model
+        self.holdout_model.eval()
+        with torch.no_grad():
+            irreducible_loss = F.cross_entropy(self.holdout_model(inputs), targets, reduction='none')
+        reducible_loss = total_loss - irreducible_loss
+
+        # Select samples with highest reducible loss
         _, indices = torch.topk(reducible_loss, selected_num_samples)
 
         return indices
@@ -257,11 +242,9 @@ class RhoLoss(SelectionMethod):
 
         # Get indices based on reducible loss
         selected_num_samples = max(1, int(inputs.shape[0] * ratio))
-        selected_num_samples = min(selected_num_samples, inputs.size(0))
-        indices = self.selection(inputs, targets, selected_num_samples)
+        indices = self.reducible_loss_selection(inputs, targets, selected_num_samples)
         inputs = inputs[indices]
         targets = targets[indices]
         indices = indices.to(indexes.device)
         indexes = indexes[indices]
-
         return inputs, targets, indexes
