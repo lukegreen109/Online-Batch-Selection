@@ -1,7 +1,7 @@
 output_dir: null
 seed: 12
 methods: 
-  - RhoLoss
+  - Bayesian
 method_opt:
   ratio: 0.1
   balance: False
@@ -10,14 +10,13 @@ method_opt:
 
 bayesian:
   adaptive_alpha: False
-  alpha: 0.3
+  alpha: 0.2
   tau: 4
   prior_precision: 10
-  ema_momentum: 0.99
-  num_effective_data: 1000
+  num_effective_data: 200
   laplace_momentum: 0.99
   n_f_samples: 256
-  clip_architecture: 'ViT-B/16'
+  clip_architecture: 'RN50'
 
 rholoss:
   holdout_model_path: "/home/phancock/Online-Batch-Selection/best_holdout.pth.tar"
@@ -43,10 +42,12 @@ dataset:
   # rand_number: 0
 
 networks:
-  type: ResNet
+  type: ResNet_torchvision
   params: 
     m_type: 'resnet18'
     num_classes: 10
+
+ema_momentum: 0.99
 
 training_opt:
   num_epochs: 75

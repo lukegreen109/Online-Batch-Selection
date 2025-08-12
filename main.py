@@ -105,8 +105,6 @@ def main():
             continue
         # Create output directory
         os.makedirs(args.output_dir, exist_ok=True)
-        # method_config = copy.deepcopy(config)
-
 
 
         # wandb_not_upload

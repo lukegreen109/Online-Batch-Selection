@@ -21,7 +21,12 @@ class KFCALLAWrapper(nn.Module):
         self.momentum = momentum
 
         self.input_features_of_last_layer = None
-        self.fhook = getattr(self.net, last_layer_name).register_forward_hook(self.forward_hook())
+        if isinstance(self.net, torch.nn.DataParallel):
+            last_layer = getattr(self.net.module, last_layer_name)
+        else:
+            last_layer = getattr(self.net, last_layer_name)
+        self.fhook = last_layer.register_forward_hook(self.forward_hook())
+        # self.fhook = getattr(self.net, last_layer_name).register_forward_hook(self.forward_hook())
 
         with torch.no_grad():
             self.net.training = False
@@ -41,7 +46,11 @@ class KFCALLAWrapper(nn.Module):
             self.input_features_of_last_layer = input[0]
         return hook
 
-    def forward(self, x, selection_pass=False, y=None):
+    def forward(self, x, **kwargs):
+        # parameters
+        selection_pass = kwargs.get('selection_pass', False)
+        y = kwargs.get('targets', None)
+
         bs = x.shape[0]
         if selection_pass:
             self.net.apply(_freeze)
@@ -60,16 +69,16 @@ class KFCALLAWrapper(nn.Module):
                 U = np.sqrt(self.num_effective_data) * self.G
                 U.diagonal().add_(np.sqrt(self.prior_precision))
                 L_U = psd_safe_cholesky(U)
-                
                 V_inv = torch.cholesky_inverse(L_V)
+
                 stds = (self.input_features_of_last_layer @ V_inv * self.input_features_of_last_layer).sum(-1).clamp(min=1e-6).sqrt()
                 L_f = stds.view(-1, 1, 1) * L_U.T.inverse()
                 f_samples = out[:, None, :] + torch.randn((bs, self.n_f_samples, out.shape[-1])).to(x.device) @ L_f
                 return f_samples, out, stds, torch.linalg.matrix_norm(L_U.T.inverse(), ord=2)
         elif self.training:
-            assert y is not None
+            assert y is not None, "Targets must be provided during training"
             with torch.no_grad():
-                
+
                 feature_cov = self.input_features_of_last_layer.T @ self.input_features_of_last_layer / bs
                 if self.num_data.item() == 0:
                     self.A.data.copy_(feature_cov)
@@ -105,8 +114,6 @@ class CLIPZeroShotClassifier(nn.Module):
 
         self.register_buffer('old_mean', torch.Tensor(mean_std.mean[dataset]))
         self.register_buffer('old_std', torch.Tensor(mean_std.std[dataset]))
-        # self.register_buffer('old_mean', torch.Tensor([0.485, 0.456, 0.406]))
-        # self.register_buffer('old_std', torch.Tensor([0.229, 0.224, 0.225]))
         
         self.register_buffer('new_mean', torch.Tensor([0.48145466, 0.4578275, 0.40821073]))
         self.register_buffer('new_std', torch.Tensor([0.26862954, 0.26130258, 0.27577711]))
@@ -150,13 +157,6 @@ def _freeze(m):
 def _unfreeze(m):
     if isinstance(m, (nn.BatchNorm2d)):
         m.track_running_stats = True
-
-def setup_seed(seed):
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    np.random.seed(seed)
-    random.seed(seed)
-    #  torch.backends.cudnn.deterministic = True
 
 def psd_safe_cholesky(A, upper=False, out=None, jitter=None):
     """Compute the Cholesky decomposition of A. If A is only p.s.d, add a small jitter to the diagonal.
