@@ -8,7 +8,8 @@ import numpy as np
 import torch
 import os
 import torch.nn.functional as F
-from torch.utils.data import random_split, DataLoader
+import torch.serialization
+from src.models.modules import resnet_cifar 
 
 class RhoLoss(SelectionMethod):
     """A class for implementing the RhoLoss selection method, which selects samples based on reducible loss.
@@ -41,22 +42,40 @@ class RhoLoss(SelectionMethod):
         self.holdout_model_args = config['rholoss']['networks']['params']
         self.holdout_epochs = config['rholoss']['holdout_num_epochs']
         # self.holdout_model = self.setup_holdout_model(config, logger)
-        # Load checkpoint
-        ckpt = torch.load(
-            "/home/phancock/Online-Batch-Selection/RhoLoss_pretrained_holdout.ckpt",
-            map_location=self.device,
-            weights_only=False
-        )
+       
+       # Load checkpoint
+        ckpt = torch.load(config['rholoss']['holdout_model_path'], map_location=self.device, weights_only=False)
+        # ckpt = torch.load(config['rholoss']['holdout_model_path'], map_location=self.device, weights_only=True)
         state_dict = ckpt["state_dict"]
-
-        # Remove "model." prefix from keys if present
+        # Remove "model." prefix if present (common with Lightning checkpoints)
         new_state_dict = {k.replace("model.", ""): v for k, v in state_dict.items()}
-
-        # Create same architecture and load weights
-        self.holdout_model = getattr(models, self.holdout_model_type)(**self.holdout_model_args)
+        # Instantiate model architecture
+        self.holdout_model = resnet_cifar.ResNet18()
+        # Load weights
         self.holdout_model.load_state_dict(new_state_dict)
         self.holdout_model.to(self.device)
 
+        self.precompute_losses(config)
+
+        self.warming_up = False
+
+    def precompute_losses(self, config):
+        """Precompute irreducible losses for the training dataset using the holdout model."""
+        self.holdout_model.eval()
+        losses_tensor = torch.zeros(self.original_train_dset.__len__())
+
+        with torch.no_grad():
+            for datas in self.train_dataloader_unaugmented:
+                inputs = datas['input'].to(self.device)
+                targets = datas['target'].to(self.device)
+                indexes = datas['index']
+                outputs = self.holdout_model(inputs)
+                loss = F.cross_entropy(outputs, targets, reduction='none')
+                losses_tensor[indexes] = loss.cpu()
+
+        # Attach the losses tensor directly to the dataset object
+        self.original_train_dset.irreducible_loss_cache = losses_tensor
+        self.logger.info(f"Cached irreducible losses for {len(losses_tensor)} samples in dataset.")
 
 
     def setup_holdout_model(self, config, logger):
@@ -98,7 +117,7 @@ class RhoLoss(SelectionMethod):
         holdout_optimizer = create_holdout_optimizer(self.holdout_model, config)
         holdout_criterion = create_holdout_criterion(config, logger)
 
-        total_batch = len(self.holdout_dataloader)
+        total_batch = len(self.holdout_dataloader_augmented)
 
         logger.info(f"[Holdout Model] Starting training for {self.holdout_epochs} epochs on {total_batch} batches per epoch.")
 
@@ -108,7 +127,7 @@ class RhoLoss(SelectionMethod):
         self.holdout_model.train()
         for epoch in range(self.holdout_epochs):
             epoch_loss = 0.0
-            for i, datas in enumerate(self.holdout_dataloader):
+            for i, datas in enumerate(self.holdout_dataloader_augmented):
                 inputs = datas['input'].to(self.device)
                 targets = datas['target'].to(self.device)
                 
@@ -135,8 +154,9 @@ class RhoLoss(SelectionMethod):
             self.holdout_model.eval()
             val_loss = 0.0
             val_batches = 0
+            
             with torch.no_grad():
-                for val_datas in self.test_loader:
+                for val_datas in self.train_dataloader_unaugmented:
                     val_inputs = val_datas['input'].to(self.device)
                     val_targets = val_datas['target'].to(self.device)
                     outputs = self.holdout_model(val_inputs)
@@ -168,12 +188,15 @@ class RhoLoss(SelectionMethod):
             param.requires_grad = False
         holdout_model.to(self.device)
         holdout_model.eval()
-        return holdout_model
 
+        return holdout_model
+    
     def get_ratio_per_epoch(self, epoch):
         if epoch < self.warmup_epochs:
             self.logger.info('warming up')
-            return 1.0
+            self.warming_up = True
+            return 0.1
+        self.warming_up = False
         if self.ratio_scheduler == 'constant':
             return self.ratio
         elif self.ratio_scheduler == 'increase_linear':
@@ -195,7 +218,7 @@ class RhoLoss(SelectionMethod):
         else:
             raise NotImplementedError
 
-    def reducible_loss_selection(self, inputs, targets, selected_num_samples):
+    def reducible_loss_selection(self, inputs, targets, indexes, selected_num_samples):
         """Select sub-batch with highest reducible loss.
         Args:
             inputs (torch.Tensor): Input data for the current batch.
@@ -203,19 +226,30 @@ class RhoLoss(SelectionMethod):
         Returns:
             torch.Tensor: Indices of the selected samples.
         """
-        # Get total loss from main model
+        # Set models to eval mode
         self.model.eval()
+        self.holdout_model.eval()
+
+        # Get total loss from main model
         with torch.no_grad():
             total_loss = F.cross_entropy(self.model(inputs), targets, reduction='none')
+
         # Get irreducible loss from holdout model
-        self.holdout_model.eval()
-        with torch.no_grad():
-            irreducible_loss = F.cross_entropy(self.holdout_model(inputs), targets, reduction='none')
+        irreducible_loss = self.original_train_dset.irreducible_loss_cache[indexes].to(total_loss.device)
+
+        # Compute reducible loss
         reducible_loss = total_loss - irreducible_loss
 
         # Select samples with highest reducible loss
-        _, indices = torch.topk(reducible_loss, selected_num_samples)
-
+        _, indices = torch.topk(reducible_loss, selected_num_samples, largest=True, sorted=False)
+        
+        # Uniform selection during warmup
+        if self.warming_up:
+            self.logger.info('warming up')
+            indices = np.random.choice(len(inputs), size=(selected_num_samples), replace=False)
+        
+        # Return to train mode and return selected indices
+        self.model.train()
         return indices
 
     def before_batch(self, i, inputs, targets, indexes, epoch):
@@ -230,6 +264,7 @@ class RhoLoss(SelectionMethod):
             tuple: Selected inputs, targets, and indexes for the current batch.
         """
         # Get the ratio for the current epoch
+        # print(f"Indexes: {indexes}")
         ratio = self.get_ratio_per_epoch(epoch)
         if ratio == 1.0:
             if i == 0:
@@ -242,9 +277,10 @@ class RhoLoss(SelectionMethod):
 
         # Get indices based on reducible loss
         selected_num_samples = max(1, int(inputs.shape[0] * ratio))
-        indices = self.reducible_loss_selection(inputs, targets, selected_num_samples)
+        indices = self.reducible_loss_selection(inputs, targets, indexes, selected_num_samples)
         inputs = inputs[indices]
         targets = targets[indices]
-        indices = indices.to(indexes.device)
+        if not self.warming_up:
+            indices = indices.to(indexes.device)
         indexes = indexes[indices]
         return inputs, targets, indexes
