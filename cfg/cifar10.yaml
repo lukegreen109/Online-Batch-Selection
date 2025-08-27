@@ -1,7 +1,7 @@
 output_dir: null
 seed: 16
 methods: 
-  - Bayesian
+  - Full
 method_opt:
   ratio: 0.1
   balance: False
@@ -19,7 +19,7 @@ bayesian:
   clip_architecture: 'RN50'
 
 rholoss:
-  holdout_model_path: None
+  holdout_model_path: exp/RhoLossRW_Test6/RhoLossRW/best_holdout.pth.tar
   holdout_percentage: .50
   holdout_num_epochs: 25
   holdout_num_steps: 10000
@@ -29,9 +29,9 @@ rholoss:
   holdout_optim_params: {lr: 0.1, momentum: 0.9, weight_decay: 0.0005}
   holdout_loss_type: CrossEntropy
   networks:
-    type: ResNet
+    type: Small_cnn
     params: 
-      m_type: 'resnet18'
+      m_type: 'Small_cnn'
       num_classes: 10
 
 dataset:
