@@ -14,7 +14,7 @@ def create_optimizer(model, config):
     elif training_opt['optimizer'] == 'Adam':
         optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     elif training_opt['optimizer'] == 'AdamW':
-        optimizer = optim.AdamW(model.parameters(), lr=lr,weight_decay=weight_decay)
+        optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     else:
         raise NotImplementedError
     return optimizer

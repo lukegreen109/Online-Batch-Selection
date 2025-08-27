@@ -6,7 +6,7 @@ import numpy as np
 import time
 from .method_utils import *
 import data
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, Subset
 from ema_pytorch import EMA
 
 
@@ -53,36 +53,52 @@ class SelectionMethod(object):
         )
         self.ema_net.eval()
 
-        # data
-        self.data_info = getattr(data, config['dataset']['name'])(config, logger)
-        self.num_classes = self.data_info['num_classes']
-        self.train_dset = self.data_info['train_dset']
-        self.test_loader = self.data_info['test_loader']
-        self.num_train_samples = self.data_info['num_train_samples']
-
-        # If including holdout dataset for rholoss holdout model
-        if config['dataset']['include_holdout'] == True:
-            holdout_percentage = config['rholoss']['holdout_percentage']
-            holdout_batch_size = config['rholoss']['holdout_batch_size']
-
-            # Split data into main model and holdout model
-            holdout_len = int(self.num_train_samples * holdout_percentage)
-            main_len = int(self.num_train_samples - holdout_len)
-            main_model_dataset, holdout_dataset = random_split(self.train_dset, [main_len, holdout_len], generator=torch.Generator().manual_seed(config['seed']))
-
-            self.train_dset = main_model_dataset
-            self.num_train_samples = main_len
-
-            self.holdout_dataset = holdout_dataset
-            self.holdout_dataloader = DataLoader(holdout_dataset, batch_size=holdout_batch_size, shuffle=True)
-
         self.epochs = config['training_opt']['num_epochs'] if 'num_epochs' in config['training_opt'] else None
         self.num_steps = config['training_opt']['num_steps'] if 'num_steps' in config['training_opt'] else None
         if self.epochs is None and self.num_steps is None:
             raise ValueError('Must specify either num_epochs or num_steps in training_opt')
         self.num_data_workers = config['training_opt']['num_data_workers']
         self.batch_size = config['training_opt']['batch_size']
+
+        # data
+        self.data_info = getattr(data, config['dataset']['name'])(config, logger)
+        self.num_classes = self.data_info['num_classes']
         
+        self.train_dset = self.data_info['train_dset']
+        self.test_loader = self.data_info['test_loader']
+        self.num_train_samples = self.data_info['num_train_samples']
+
+        # If including holdout dataset for rholoss holdout model
+        if config['dataset']['include_holdout'] == True:
+            
+            train_dset_unaugmented = self.data_info['train_dset_unaugmented']
+            
+            self.holdout_percentage = config['rholoss']['holdout_percentage']
+            self.holdout_batch_size = config['rholoss']['holdout_batch_size']
+
+            # Split data into main model and holdout model
+            holdout_len = int(self.num_train_samples * self.holdout_percentage)
+            main_len = int(self.num_train_samples - holdout_len)
+            
+            # Create augmented and non-augmented datasets
+            self.original_train_dset = self.train_dset
+
+            indices = torch.randperm(len(self.original_train_dset), generator=torch.Generator().manual_seed(config['seed']))
+            main_indices = indices[:main_len]
+            holdout_indices = indices[main_len:]
+
+            # Apply same indices to both datasets
+            self.train_dset = Subset(self.original_train_dset, main_indices)
+            self.train_dset_unaugmented = Subset(train_dset_unaugmented, main_indices)
+            self.holdout_dataset_augmented = Subset(self.original_train_dset, holdout_indices)
+            self.holdout_dataset_unaugmented = Subset(train_dset_unaugmented, holdout_indices)
+
+            self.num_train_samples = main_len
+
+            self.holdout_dataloader_augmented = DataLoader(self.holdout_dataset_augmented, batch_size=self.holdout_batch_size, shuffle=True)
+            self.holdout_dataloader_unaugmented = DataLoader(self.holdout_dataset_unaugmented, batch_size=self.holdout_batch_size, shuffle=True)
+            self.train_dataloader_augmented = DataLoader(self.train_dset, batch_size=self.batch_size, shuffle=True, pin_memory = True, num_workers=self.num_data_workers)
+            self.train_dataloader_unaugmented = DataLoader(self.train_dset_unaugmented, batch_size=self.batch_size, shuffle=True, pin_memory = True, num_workers=self.num_data_workers)        
         
         self.criterion = create_criterion(config, logger)
 
@@ -148,7 +164,7 @@ class SelectionMethod(object):
         # online batch selection
         return inputs, targets, indexes
     
-    def after_batch(self, i,inputs, targets, indexes,outputs):
+    def after_batch(self, i, inputs, targets, indexes, outputs):
         self.ema_net.update()
 
 
