@@ -131,7 +131,7 @@ def main():
         init_seeds(config["seed"])
         # logger.info(f'=====> Random seed initialized to {config["seed"]}')
         logger.info(f'=====> Wandb initialized')
-        run = wandb.init(config=config, project="Preston_Sandbox", entity="miller-ml-research",)
+        run = wandb.init(config=config, project="Efficient Selection with EMA", entity="miller-ml-research")
         re_nest_configs(run.config)
         wandb.define_metric('acc', 'max')
         run.name = method + '_' + config['output_dir'].split('/')[-2]
