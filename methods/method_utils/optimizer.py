@@ -1,39 +1,15 @@
 import torch.optim as optim
 
 def create_optimizer(model, config):
-    training_opt = config['training_opt']
-    lr = training_opt['optim_params']['lr']
-    weight_decay = training_opt['optim_params']['weight_decay']
-    if training_opt['optimizer'] == 'SGD':
-        momentum = training_opt['optim_params']['momentum']
-    else:
-        momentum = None
-    
-    if training_opt['optimizer'] == 'SGD':
-        optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
-    elif training_opt['optimizer'] == 'Adam':
-        optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
-    elif training_opt['optimizer'] == 'AdamW':
-        optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-    else:
-        raise NotImplementedError
-    return optimizer
+    optim_type = config['training_opt']['optimizer']
+    optim_params = config['training_opt']['optim_params']
 
-def create_holdout_optimizer(holdout_model, config):
-    rholoss = config['rholoss']
-    lr = rholoss['holdout_optim_params']['lr']
-    weight_decay = rholoss['holdout_optim_params']['weight_decay']
-    if rholoss['holdout_optimizer'] == 'SGD':
-        momentum = rholoss['holdout_optim_params']['momentum']
-    else:
-        momentum = None
-    
-    if rholoss['holdout_optimizer'] == 'SGD':
-        optimizer = optim.SGD(holdout_model.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
-    elif rholoss['holdout_optimizer'] == 'Adam':
-        optimizer = optim.Adam(holdout_model.parameters(), lr=lr, weight_decay=weight_decay)
-    elif rholoss['holdout_optimizer'] == 'AdamW':
-        optimizer = optim.AdamW(holdout_model.parameters(), lr=lr,weight_decay=weight_decay)
+    if optim_type == 'SGD':
+        optimizer = optim.SGD(params = model.parameters(), **optim_params)
+    elif optim_type == 'Adam':
+        optimizer = optim.Adam(params = model.parameters(), **optim_params)
+    elif optim_type == 'AdamW':
+        optimizer = optim.AdamW(params = model.parameters(), **optim_params)
     else:
         raise NotImplementedError
     return optimizer
