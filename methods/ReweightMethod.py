@@ -164,8 +164,7 @@ class ReweightMethod(object):
         pass
 
     def before_batch(self, i, inputs, targets, indexes, epoch):
-        # online batch selection
-        return inputs, targets, indexes
+        return torch.ones_like(targets).float().cuda() / len(targets)
     
     def after_batch(self, i,inputs, targets, indexes,outputs):
         self.ema_net.update()

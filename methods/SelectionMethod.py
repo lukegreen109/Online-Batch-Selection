@@ -98,8 +98,8 @@ class SelectionMethod(object):
             self.holdout_dataloader_augmented = DataLoader(self.holdout_dataset_augmented, batch_size=self.holdout_batch_size, shuffle=True)
             self.holdout_dataloader_unaugmented = DataLoader(self.holdout_dataset_unaugmented, batch_size=self.holdout_batch_size, shuffle=True)
             self.train_dataloader_augmented = DataLoader(self.train_dset, batch_size=self.batch_size, shuffle=True, pin_memory = True, num_workers=self.num_data_workers)
-            self.train_dataloader_unaugmented = DataLoader(self.train_dset_unaugmented, batch_size=self.batch_size, shuffle=True, pin_memory = True, num_workers=self.num_data_workers)        
-        
+            self.train_dataloader_unaugmented = DataLoader(self.train_dset_unaugmented, batch_size=self.batch_size, shuffle=True, pin_memory = True, num_workers=self.num_data_workers)      
+
         self.criterion = create_criterion(config, logger)
 
         self.need_features = False

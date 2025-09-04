@@ -13,17 +13,17 @@ import cvxpy as cp
 
 
 class RhoLossRW(ReweightMethod):
-    """A class for implementing the RhoLoss selection method, which selects samples based on reducible loss.
+    """A class for implementing the RhoLoss reweighting method, which reweights samples based on the exponential 
+    of the reducible loss scaled by alpha.
 
-    This class inherits from `SelectionMethod` and uses an irreducible loss model (ILmodel) and a target model
-    to compute reducible loss for sample selection during training. It supports various ratio scheduling strategies
-    for dynamic sample selection and handles model training and loading for specific datasets.
+    This class inherits from `ReweightMethod` and uses an irreducible loss model (ILmodel) and a target model
+    to compute reducible loss for sample selection during training. It supports various alpha scheduling strategies
+    for dynamic sample reweighting and handles model training and loading for specific datasets.
 
     Args:
         config (dict): Configuration dictionary containing method and dataset parameters.
             Expected keys include:
-                - 'method_opt': Dictionary with keys 'ratio', 'budget', 'epochs', 'ratio_scheduler',
-                  'warmup_epochs', 'iter_selection', 'balance'.
+                - 'method_opt': Dictionary with keys 'alpha', 'rho'.
                 - 'rho_loss': Dictionary with key 'training_budget'.
                 - 'dataset': Dictionary with keys 'name' and 'num_classes'.
                 - 'networks': Dictionary with key 'params' containing 'm_type'.
@@ -32,10 +32,9 @@ class RhoLossRW(ReweightMethod):
     method_name = 'RhoLossRW'
     def __init__(self, config, logger):
         super().__init__(config, logger)
-        self.balance = config['method_opt']['balance']
-        self.ratio = config['method_opt']['ratio']
-        self.ratio_scheduler = config['method_opt']['ratio_scheduler'] if 'ratio_scheduler' in config['method_opt'] else 'constant'
-        self.warmup_epochs = config['method_opt']['warmup_epochs'] if 'warmup_epochs' in config['method_opt'] else 0
+        self.alpha = config['method_opt']['alpha']
+        self.alpha_scheduler = config['method_opt']['alpha_scheduler'] if 'alpha_scheduler' in config['method_opt'] else 'constant'
+        self.rho = config['method_opt']['rho']
         self.current_train_indices = np.arange(self.num_train_samples)
         self.reduce_dim = config['method_opt']['reduce_dim'] if 'reduce_dim' in config['method_opt'] else False
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -44,7 +43,6 @@ class RhoLossRW(ReweightMethod):
         
         self.precompute_losses()
 
-        self.warming_up = False
 
     def precompute_losses(self):
         """Precompute irreducible losses for the training dataset using the holdout model."""
@@ -99,7 +97,7 @@ class RhoLossRW(ReweightMethod):
             holdout_epochs (int): Number of epochs to train the holdout model.
         """
         
-        optimizer = create_holdout_optimizer(self.holdout_model, config)
+        optimizer = create_optimizer(self.holdout_model, config)
         criterion = create_holdout_criterion(config, logger)
 
         epochs = config['rholoss']['holdout_num_epochs']
@@ -152,9 +150,9 @@ class RhoLossRW(ReweightMethod):
             avg_val_loss = val_loss / max(1, val_batches)
             logger.info(f"[Holdout Model][Epoch {epoch+1}/{epochs}] Validation Loss: {avg_val_loss:.4f}")
 
-            # Save best model if average loss improves
-            if avg_epoch_loss < best_loss:
-                best_loss = avg_epoch_loss
+            # Save best model if average validation loss improves
+            if avg_val_loss < best_loss:
+                best_loss = avg_val_loss
                 torch.save(self.holdout_model.state_dict(), best_model_path)
                 logger.info(f"Best holdout model updated at epoch {epoch+1}")
         
@@ -169,35 +167,9 @@ class RhoLossRW(ReweightMethod):
 
         self.holdout_model.eval()
     
-    def get_ratio_per_epoch(self, epoch):
-        if epoch < self.warmup_epochs:
-            self.logger.info('warming up')
-            self.warming_up = True
-            return 0.1
-        self.warming_up = False
-        if self.ratio_scheduler == 'constant':
-            return self.ratio
-        elif self.ratio_scheduler == 'increase_linear':
-            min_ratio = self.ratio[0]
-            max_ratio = self.ratio[1]
-            return min_ratio + (max_ratio - min_ratio) * epoch / self.epochs
-        elif self.ratio_scheduler == 'decrease_linear':
-            min_ratio = self.ratio[0]
-            max_ratio = self.ratio[1]
-            return max_ratio - (max_ratio - min_ratio) * epoch / self.epochs
-        elif self.ratio_scheduler == 'increase_exp':
-            min_ratio = self.ratio[0]
-            max_ratio = self.ratio[1]
-            return min_ratio + (max_ratio - min_ratio) * np.exp(epoch / self.epochs)
-        elif self.ratio_scheduler == 'decrease_exp':
-            min_ratio = self.ratio[0]
-            max_ratio = self.ratio[1]
-            return max_ratio - (max_ratio - min_ratio) * np.exp(epoch / self.epochs)
-        else:
-            raise NotImplementedError
 
 
-    def project_onto_simplex_qp(self, weights, phi = 0.5):
+    def project_onto_simplex_qp(self, weights, rho = 0.25):
         """
         Projects a vector x onto the probability simplex using quadratic programming.
 
@@ -208,7 +180,8 @@ class RhoLossRW(ReweightMethod):
             np.ndarray: The projection of x onto the probability simplex.
         """
         n = len(weights)
-        
+        simplex_center = cp.Constant(np.ones(n) / n)
+
         # Define the optimization variable y
         y = cp.Variable(n)
         
@@ -218,8 +191,9 @@ class RhoLossRW(ReweightMethod):
         # Define the constraints
         constraints = [
             cp.sum(y) == 1,  # The elements must sum to one
-            y >= 1/n - phi/n,           # The elements must be within phi/n of 1/n
-            y <= 1/n + phi/n  
+            cp.sum_squares(y - simplex_center) <= float(rho)/n
+            # y >= 1/n - rho/n,           # The elements must be within rho/n of 1/n
+            # y <= 1/n + rho/n
         ]
         
         # Define the QP problem and solve it
@@ -230,7 +204,22 @@ class RhoLossRW(ReweightMethod):
         return y.value
 
 
-    def reducible_loss_selection(self, inputs, targets, indexes, selected_num_samples):
+    def get_alpha_per_epoch(self, epoch):
+        if self.alpha_scheduler == "constant":
+            return self.alpha
+        elif self.alpha_scheduler == "decrease_linear":
+            min_alpha = self.alpha[0]
+            max_alpha = self.alpha[1]
+            return max_alpha - (max_alpha - min_alpha) * epoch / self.epochs
+        elif self.alpha_scheduler == "decrease_exp":
+            min_alpha = self.alpha[0]
+            max_alpha = self.alpha[1]
+            return max_alpha - (max_alpha - min_alpha) * np.exp(epoch / self.epochs)
+        else:
+            raise NotImplementedError
+
+
+    def reducible_loss_weights(self, inputs, targets, indexes, alpha):
         """Select sub-batch with highest reducible loss.
         Args:
             inputs (torch.Tensor): Input data for the current batch.
@@ -251,21 +240,18 @@ class RhoLossRW(ReweightMethod):
 
         # Compute reducible loss
         reducible_loss = total_loss - irreducible_loss
-        
-        # Uniform selection during warmup
-        if self.warming_up:
-            self.logger.info('warming up')
-            reducible_loss = torch.ones_like(reducible_loss) / reducible_loss.sum()
 
-        weights = torch.exp(reducible_loss)
-        weights = weights / weights.sum()
+        self.logger.info(f"reducible_loss: {reducible_loss}")
+        weights = F.softmax(alpha * reducible_loss, dim=0)
+        self.logger.info(f"weights: {weights}")
         weights = weights.cpu().numpy()
-        weights = self.project_onto_simplex_qp(weights)
-        weights = torch.from_numpy(weights).to(reducible_loss.device)
-
+        weights = self.project_onto_simplex_qp(weights, self.rho)
+        weights = torch.tensor(weights, dtype=torch.float32, device=self.device)
         # Return to train mode and return selected indices
+        self.logger.info(f"projected_weights: {weights}")
         self.model.train()
         return weights
+
 
     def before_batch(self, i, inputs, targets, indexes, epoch):
         """Prepare the batch for training by selecting samples based on reducible loss.
@@ -278,20 +264,13 @@ class RhoLossRW(ReweightMethod):
         Returns:
             tuple: Selected inputs, targets, and indexes for the current batch.
         """
-        # Get the ratio for the current epoch
-        # print(f"Indexes: {indexes}")
-        ratio = self.get_ratio_per_epoch(epoch)
-        if ratio == 1.0:
-            if i == 0:
-                self.logger.info('using all samples')
-            return super().before_batch(i, inputs, targets, indexes, epoch)
-        else:
-            if i == 0:
-                self.logger.info(f'balance: {self.balance}')
-                self.logger.info('selecting samples for epoch {}, ratio {}'.format(epoch, ratio))
+        alpha = self.get_alpha_per_epoch(epoch)
 
-        # Get indices based on reducible loss
-        selected_num_samples = max(1, int(inputs.shape[0] * ratio))
-        weights = self.reducible_loss_selection(inputs, targets, indexes, selected_num_samples)
-        
-        return weights.to(device=self.device)
+        if i == 0:
+            self.logger.info('selecting samples for epoch {}, alpha {}'.format(epoch, alpha))
+
+        # Get projected weights based on the exponential of the reducible loss scaled by alpha
+        weights = self.reducible_loss_weights(inputs, targets, indexes, alpha)
+
+        weights = torch.ones_like(weights) / len(weights)
+        return weights

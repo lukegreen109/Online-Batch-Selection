@@ -1,29 +1,18 @@
 output_dir: null
 seed: 12
 methods: 
-  - Full
+  - RhoLossRW
 method_opt:
-  ratio: 0.1
-  balance: False
-  ratio_scheduler: constant
-  warmup_epochs: 0
-
-bayesian:
-  adaptive_alpha: False
-  alpha: 0.2
-  tau: 4
-  prior_precision: 10
-  num_effective_data: 200
-  laplace_momentum: 0.99
-  n_f_samples: 256
-  clip_architecture: 'RN50'
+  alpha: [0.1, 1.0]
+  alpha_scheduler: decrease_linear
+  rho: 5.0
 
 rholoss:
-  holdout_model_path: exp/RhoLossRW_Test6/RhoLossRW/best_holdout.pth.tar
+  holdout_model_path: exp/reweight_test2/RhoLossRW/best_holdout.pth.tar
   holdout_percentage: .50
   holdout_num_epochs: 30
   holdout_num_steps: 1000000
-  holdout_batch_size: 320
+  holdout_batch_size: 32
   holdout_optimizer: AdamW
   holdout_loss_params: {}
   holdout_optim_params: {lr: 0.001, betas: [0.9, 0.999], momentum: 0.9, weight_decay: 0.01}
@@ -49,13 +38,13 @@ networks:
 ema_momentum: 0.99
 
 training_opt:
-  num_epochs: 100
+  num_epochs: 50
   # num_steps: 1000000
   num_data_workers: 4
-  batch_size: 320
+  batch_size: 32
   test_batch_size: 512
   loss_type: CrossEntropy
-  loss_params: {}
+  loss_params: {reduction: 'none'}
   optimizer: AdamW
   optim_params: {lr: 0.001, betas: [0.9, 0.999], eps: 0.00000001, weight_decay: 0.01, amsgrad: False}
   scheduler: 'constant'

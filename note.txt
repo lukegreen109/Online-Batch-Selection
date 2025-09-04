@@ -1,0 +1,3 @@
+I'm running RhoLoss with the reweighting and am noticing that the there is usually one or two points that really outweigh the rest (a single data point having a weight of 0.6) 
+with the rest of the data nearly split equally. I added in a projection feature, but it's a little hard to fine tune it. Typically the projection ends up putting as much weight as possible
+on the single data point and splitting everything else evenly (see projection4 logs). Might need to fine tune the emphasis placed on the reducible loss.

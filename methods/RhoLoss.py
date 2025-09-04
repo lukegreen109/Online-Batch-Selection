@@ -150,9 +150,9 @@ class RhoLoss(SelectionMethod):
             avg_val_loss = val_loss / max(1, val_batches)
             logger.info(f"[Holdout Model][Epoch {epoch+1}/{epochs}] Validation Loss: {avg_val_loss:.4f}")
 
-            # Save best model if average loss improves
-            if avg_epoch_loss < best_loss:
-                best_loss = avg_epoch_loss
+            # Save best model if average validation loss improves
+            if avg_val_loss < best_loss:
+                best_loss = avg_val_loss
                 torch.save(self.holdout_model.state_dict(), best_model_path)
                 logger.info(f"Best holdout model updated at epoch {epoch+1}")
         
@@ -171,7 +171,7 @@ class RhoLoss(SelectionMethod):
         if epoch < self.warmup_epochs:
             self.logger.info('warming up')
             self.warming_up = True
-            return 0.1
+            return 1.0
         self.warming_up = False
         if self.ratio_scheduler == 'constant':
             return self.ratio
