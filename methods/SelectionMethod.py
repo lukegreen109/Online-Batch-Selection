@@ -88,14 +88,14 @@ class SelectionMethod(object):
 
         if self.use_fiftyone:
             import fiftyone as fo
-            from fiftyone.utils.torch import FiftyOneDataset
+            from fiftyone.utils.torch import FiftyOneTorchDataset
             import fiftyone.zoo as foz
             self.logger.info(f'Loading {self.dataset_name} from FiftyOne Zoo')
             self.fo_test_dataset = foz.load_zoo_dataset(self.dataset_name, split="test", shuffle=True)
             self.fo_train_dataset = foz.load_zoo_dataset(self.dataset_name, split="train", shuffle=True)
-            self.train_dset = FiftyOneDataset(self.fo_train_dataset, label_field="ground_truth")
+            self.train_dset = FiftyOneTorchDataset(self.fo_train_dataset, label_field="ground_truth")
             self.test_loader = torch.utils.data.DataLoader(
-                FiftyOneDataset(self.fo_test_dataset, label_field="ground_truth"),
+                FiftyOneTorchDataset(self.fo_test_dataset, label_field="ground_truth"),
                 batch_size=self.batch_size,
                 shuffle=False,
                 num_workers=self.num_data_workers,

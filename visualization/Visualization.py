@@ -5,7 +5,6 @@ import torch
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 import umap
 
@@ -31,7 +30,6 @@ class Visualizer:
 
         # embedding params
         embedding_params = vis_cfg["embedding_params"]
-        self.pca_params = embedding_params["PCA"]
         self.tsne_params = embedding_params["TSNE"]
         self.umap_params = embedding_params["UMAP"]
 
@@ -56,8 +54,6 @@ class Visualizer:
             filepaths (list of str, optional): Paths to images corresponding to embeddings (required for FiftyOne)
         """
         def _get_reducer(self, method):
-            if method == "pca":
-                return PCA(**self.pca_params, random_state=self.seed)
             if method == "tsne":
                 return TSNE(**self.tsne_params, random_state=self.seed)
             if method == "umap":

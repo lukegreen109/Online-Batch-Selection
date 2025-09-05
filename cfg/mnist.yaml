@@ -31,9 +31,6 @@ visualization:
     - TSNE
     - UMAP
   embedding_params:
-    pca:
-      n_components: 2
-      whiten: True
     tsne:
       n_components: 2
       perplexity: 30

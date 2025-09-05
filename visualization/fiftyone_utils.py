@@ -24,7 +24,7 @@ def visualize_with_fiftyone(
         filepaths: list of file paths (length N) – must exist or be placeholders
         selected_idx: indices to mark as selected (optional)
         epoch: identifier for dataset naming
-        method: one of {"umap", "tsne", "pca"}
+        method: one of {"umap", "tsne"}
         persistent: whether dataset persists across App sessions
         params: optional method-specific params for compute_visualization
         logger: optional logger (defaults to print if not provided)
