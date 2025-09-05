@@ -1,0 +1,75 @@
+output_dir: null
+seed: 97
+methods: 
+  - Full
+  - Uniform
+  - DivBS
+method_opt:
+  ratio: 0.1
+  balance: False
+  ratio_scheduler: constant
+  warmup_epochs: 0
+
+bayesian:
+  adaptive_alpha: False
+  alpha: 0.3
+  tau: 4
+  prior_precision: 10
+  ema_momentum: 0.99
+  num_effective_data: 1000
+  laplace_momentum: 0.99
+  n_f_samples: 256
+  clip_architecture: 'ViT-B/16'
+
+visualization:
+  enable: True
+  milestones:
+    - 0.000
+    - 0.333
+    - 0.667
+    - 1.000
+  embedding_methods:
+    - PCA
+    - TSNE
+    - UMAP
+  embedding_params:
+    PCA: 
+      n_components: 2
+      whiten: True
+    TSNE:
+      n_components: 2
+      perplexity: 30
+      max_iter: 1000
+      learning_rate: 200
+    UMAP:
+      n_neighbors: 15
+      min_dist: 0.1
+      n_components: 2
+      metric: 'euclidean'
+  save_dir: ./visualization/results
+
+dataset:
+  name: CIFAR10
+  root: ./_CIFAR
+
+networks:
+  type: ResNet
+  params: 
+    m_type: 'resnet18'
+    num_classes: 10
+
+training_opt:
+  num_epochs: 4
+  num_steps: 1000
+  num_data_workers: 4
+  batch_size: 320
+  test_batch_size: 512
+  loss_type: CrossEntropy
+  loss_params: {}
+  optimizer: SGD
+  optim_params: {lr: 0.1, momentum: 0.9, weight_decay: 0.0005}
+  scheduler: 'cosine'
+  scheduler_params: {endlr: 0.0001, gamma: 0.1, step_size: 35, milestones: [120, 160]}
+
+logger_opt:
+  print_iter: 100
