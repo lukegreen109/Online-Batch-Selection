@@ -84,9 +84,16 @@ def MNIST(config, logger):
         transforms.ToTensor(),
         transforms.Normalize(mean=mean, std=std)
     ])
-    
-    dst_train = datasets.MNIST(config['dataset']['root'], train=True, download=True, transform=transform)
-    dst_test = datasets.MNIST(config['dataset']['root'], train=False, download=True, transform=test_transform)
+
+    use_fiftyone = False if 'visualization' not in config else config['visualization']['use_fiftyone']
+    if not use_fiftyone:
+        dst_train = datasets.MNIST(config['dataset']['root'], train=True, download=True, transform=transform)
+        dst_test = datasets.MNIST(config['dataset']['root'], train=False, download=True, transform=test_transform)
+
+    else:
+        import fiftyone.zoo as foz
+        dst_train = foz.load_zoo_dataset("mnist", split="train", download_if_necessary=True)
+        dst_test = foz.load_zoo_dataset("mnist", split="test", download_if_necessary=True)
 
     config['training_opt']['test_batch_size'] = (
         config['training_opt']['batch_size'] 
@@ -125,14 +132,19 @@ def MNIST_LT(config, logger):
         transforms.ToTensor(),
         transforms.Normalize(mean=mean, std=std)
     ])
-    
-    dst_train = IMBALANCEMNIST(
-        root=config['dataset']['root'], 
-        imb_factor=config['dataset']['imb_factor'], 
-        rand_number=config['dataset']['rand_number'], 
-        train=True, download=True, transform=transform
-    )
-    dst_test = datasets.MNIST(config['dataset']['root'], train=False, download=True, transform=test_transform)
+    use_fiftyone = False if 'visualization' not in config else config['visualization']['use_fiftyone']
+    if not use_fiftyone:
+        dst_train = IMBALANCEMNIST(
+            root=config['dataset']['root'], 
+            imb_factor=config['dataset']['imb_factor'], 
+            rand_number=config['dataset']['rand_number'], 
+            train=True, download=True, transform=transform
+        )
+        dst_test = datasets.MNIST(config['dataset']['root'], train=False, download=True, transform=test_transform)
+    else:
+        import fiftyone.zoo as foz
+        dst_train = foz.load_zoo_dataset("mnist", split="train", download_if_necessary=True)
+        dst_test = foz.load_zoo_dataset("mnist", split="test", download_if_necessary=True)
 
     config['training_opt']['test_batch_size'] = (
         config['training_opt']['batch_size'] 
