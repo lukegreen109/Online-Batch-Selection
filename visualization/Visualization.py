@@ -30,8 +30,8 @@ class Visualizer:
 
         # embedding params
         embedding_params = vis_cfg["embedding_params"]
-        self.tsne_params = embedding_params["TSNE"]
-        self.umap_params = embedding_params["UMAP"]
+        self.tsne_params = embedding_params["tsne"]
+        self.umap_params = embedding_params["umap"]
 
     def visualize_embeddings(
         self, 
