@@ -23,6 +23,7 @@ bayesian:
 visualization:
   enable: True
   use_fiftyone: True
+  use_fiftyone_dataloader: False
   milestones:
     - 0.000
     - 0.500

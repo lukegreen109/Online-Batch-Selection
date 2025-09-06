@@ -70,6 +70,7 @@ class SelectionMethod(object):
         vis_cfg = config.get('visualization', {})
         self.visualization_enabled = vis_cfg.get('enable', False)
         self.use_fiftyone = vis_cfg.get('use_fiftyone', False)
+        self.use_fiftyone_dataloader = vis_cfg.get('use_fiftyone_dataloader', False)
 
         if self.visualization_enabled:
             try:
@@ -86,7 +87,7 @@ class SelectionMethod(object):
         # Dataset handling
         self.dataset_name = config['dataset']['name'].lower()
 
-        if self.use_fiftyone:
+        if self.use_fiftyone_dataloader:
             import fiftyone as fo
             from fiftyone.utils.torch import FiftyOneTorchDataset
             import fiftyone.zoo as foz
