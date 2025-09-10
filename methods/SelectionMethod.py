@@ -182,9 +182,6 @@ class SelectionMethod(object):
 
         train_loader = torch.utils.data.DataLoader(self.train_dset, num_workers=self.num_data_workers, pin_memory=True, batch_sampler=batch_sampler)
 
-        # PRESTON CODE BELOW (Normal code above)
-        #train_loader = self.train_dataloader_augmented
-
         total_batch = len(train_loader)
         epoch_begin_time = time.time()
         # train
