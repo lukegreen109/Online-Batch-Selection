@@ -85,7 +85,9 @@ class DivBS(SelectionMethod):
         return index_selected
 
     def before_batch(self, i, inputs, targets, indexes):
+        self.logger.info('getting ratio per epoch')
         ratio = self.get_ratio_per_epoch()
+        self.logger.info('done getting ratio per epoch')
         if ratio == 1.0:
             if i == 0:
                 self.logger.info('using all samples')

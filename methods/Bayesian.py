@@ -58,7 +58,8 @@ class Bayesian(SelectionMethod):
         self.adaptive_alpha = config['bayesian']['adaptive_alpha']
 
         
-    def get_ratio_per_epoch(self, epoch):
+    def get_ratio_per_epoch(self):
+        epoch = self.epoch
         if epoch < self.warmup_epochs:
             self.logger.info('warming up')
             return 1.0
@@ -100,7 +101,8 @@ class Bayesian(SelectionMethod):
         return index_selected
 
 
-    def before_batch(self, i, inputs, targets, indexes, epoch):
+    def before_batch(self, i, inputs, targets, indexes):
+        epoch = self.epoch
         ratio = self.get_ratio_per_epoch(epoch)
         if ratio == 1.0:
             if i == 0:

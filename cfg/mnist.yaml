@@ -8,6 +8,7 @@ method_opt:
   balance: False
   ratio_scheduler: constant
   warmup_epochs: 0
+skip_redundant_methods: False
 
 bayesian:
   adaptive_alpha: False
@@ -30,7 +31,6 @@ visualization:
     - 1.000
   embedding_methods:
     - TSNE
-    - UMAP
   embedding_params:
     tsne:
       n_components: 2
@@ -56,7 +56,7 @@ networks:
     in_channels: 1
 
 training_opt:
-  num_epochs: 2
+  num_epochs: 4
   num_steps: 1000
   num_data_workers: 4
   batch_size: 128

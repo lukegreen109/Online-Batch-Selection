@@ -29,9 +29,7 @@ visualization:
     - 0.667
     - 1.000
   embedding_methods:
-    - PCA
     - TSNE
-    - UMAP
   embedding_params:
     PCA: 
       n_components: 2

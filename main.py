@@ -58,6 +58,8 @@ def main():
     if config['seed'] is None:
         config['seed'] = secrets.randbelow(5000) 
 
+    skip_redundant_methods = config.get('skip_redundant_methods', True)
+
     if args.base_dir is None:
         args.base_dir = './exp/'
         # dataset
@@ -101,8 +103,9 @@ def main():
 
         # Check if run has already been executed
         if os.path.exists(args.output_dir):
-            print(f'Skip {method} as output already exists.')
-            continue
+            if skip_redundant_methods:
+                print(f'Skipping {method} batch selection as output already exists at {args.output_dir}.')
+                continue
         # Create output directory
         os.makedirs(args.output_dir, exist_ok=True)
         # method_config = copy.deepcopy(config)
