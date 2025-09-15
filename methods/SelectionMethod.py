@@ -56,6 +56,8 @@ class SelectionMethod(object):
             raise ValueError('Must specify either num_epochs or num_steps in training_opt')
         self.num_data_workers = config['training_opt']['num_data_workers']
         self.batch_size = config['training_opt']['batch_size']
+        self.training_opt = config.get('training_opt', None)
+
 
         # Criterion
         self.criterion = create_criterion(config, logger)
@@ -290,7 +292,7 @@ class SelectionMethod(object):
                 total = targets.size(0)
                 correct = (predicted == targets).sum().item()
                 train_acc = correct / total
-                self.logger.info(f'Epoch: {self.epoch}/{self.training_opt["num_epochs"]}, Iter: {i}/{total_batch}, global_step: {self.total_step+i}, Loss: {loss.item():.4f}, Train acc: {train_acc:.4f}, lr: {self.optimizer.param_groups[0]["lr"]:.6f}')
+                self.logger.info(f'Epoch: {self.epoch}/{self.epochs}, Iter: {i}/{total_batch}, global_step: {self.total_step+i}, Loss: {loss.item():.4f}, Train acc: {train_acc:.4f}, lr: {self.optimizer.param_groups[0]["lr"]:.6f}')
                     
         self.scheduler.step()
         self.total_step = self.total_step + total_batch
