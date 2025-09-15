@@ -25,6 +25,7 @@ visualization:
   enable: True
   use_fiftyone: True
   use_fiftyone_dataloader: False
+  persistent: False
   milestones:
     - 0.000
     - 0.500

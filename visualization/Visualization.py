@@ -25,7 +25,7 @@ class Visualizer:
 
         # visualization config
         vis_cfg = config['visualization']
-        
+        self.persistent = vis_cfg.get('persistent', False)
         self.save_dir = vis_cfg["save_dir"]
         self.embedding_methods = vis_cfg.get("embedding_methods", ["tsne", "umap"])
         os.makedirs(self.save_dir, exist_ok=True) # for saving plots
@@ -78,7 +78,7 @@ class Visualizer:
                     selected_idx=selected_idx,
                     epoch=self.epoch,
                     method=method,
-                    persistent=True,
+                    persistent=self.persistent,
                 )
         else:
             for method in self.embedding_methods:
