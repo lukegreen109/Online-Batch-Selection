@@ -31,7 +31,7 @@ visualization:
     - 0.500
     - 1.000
   embedding_methods:
-    - tsne
+    - umap
   embedding_params:
     tsne:
       n_components: 2
