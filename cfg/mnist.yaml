@@ -30,7 +30,7 @@ visualization:
     - 0.500
     - 1.000
   embedding_methods:
-    - TSNE
+    - tsne
   embedding_params:
     tsne:
       n_components: 2

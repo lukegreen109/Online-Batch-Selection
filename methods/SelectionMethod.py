@@ -76,7 +76,7 @@ class SelectionMethod(object):
 
         if self.visualization_enabled:
             try:
-                self.visualizer = Visualizer(config, logger, self.model)
+                self.visualizer = Visualizer(config, logger, self.model, epoch=self.epoch)
                 self.milestones = vis_cfg.get('milestones', [])
                 self.milestone_epochs = [int(p * self.epochs) for p in self.milestones]
                 self.embedding_params = vis_cfg["embedding_params"]

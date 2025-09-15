@@ -16,16 +16,18 @@ class Visualizer:
     A class for visualizing model predictions and data samples using FiftyOne and SplineCam.
     Accepts a pre-trained model and a dataset, and provides methods to visualize predictions
     """
-    def __init__(self, config, logger, model=None):
+    def __init__(self, config, logger, model=None, epoch=None):
         self.config = config
         self.logger = logger
         self.seed = config["seed"]
         self.dataset_name = config["dataset"]["name"].lower()
+        self.epoch = epoch
 
         # visualization config
         vis_cfg = config['visualization']
+        
         self.save_dir = vis_cfg["save_dir"]
-        self.embedding_methods = [m.lower() for m in vis_cfg["embedding_methods"]]
+        self.embedding_methods = vis_cfg.get("embedding_methods", ["tsne", "umap"])
         os.makedirs(self.save_dir, exist_ok=True) # for saving plots
 
         # embedding params
@@ -53,7 +55,7 @@ class Visualizer:
             use_fiftyone (bool, optional): If True, visualize using FiftyOne; otherwise, matplotlib
             filepaths (list of str, optional): Paths to images corresponding to embeddings (required for FiftyOne)
         """
-        def _get_reducer(self, method):
+        def _get_reducer(method):
             if method == "tsne":
                 return TSNE(**self.tsne_params, random_state=self.seed)
             if method == "umap":
@@ -66,18 +68,18 @@ class Visualizer:
         if filepaths is None:
             filepaths = ["placeholder.jpg"] * len(embs) # dummy paths
 
-            if use_fiftyone:
-                for method in self.embedding_methods:
-                    self.logger.info(f"Visualizing embeddings with FiftyOne (method: {method})...")
-                    visualize_with_fiftyone(
-                        embs,
-                        labels,
-                        filepaths=filepaths,
-                        selected_idx=selected_idx,
-                        epoch=epoch,
-                        method=method,
-                        persistent=True,
-                    )
+        if use_fiftyone:
+            for method in self.embedding_methods:
+                self.logger.info(f"Visualizing embeddings with FiftyOne (method: {method})...")
+                visualize_with_fiftyone(
+                    embs,
+                    labels,
+                    filepaths=filepaths,
+                    selected_idx=selected_idx,
+                    epoch=self.epoch,
+                    method=method,
+                    persistent=True,
+                )
         else:
             for method in self.embedding_methods:
                 self.logger.info(f"Visualizing embeddings with {method}...")
