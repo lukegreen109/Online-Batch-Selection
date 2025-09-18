@@ -23,7 +23,7 @@ rholoss:
   holdout_percentage: .50
   holdout_num_epochs: 30
   holdout_num_steps: 1000000
-  holdout_batch_size: 32
+  holdout_batch_size: 320
   holdout_optimizer: AdamW
   holdout_loss_params: {}
   holdout_optim_params: {lr: 0.001, betas: [0.9, 0.999], momentum: 0.9, weight_decay: 0.01}

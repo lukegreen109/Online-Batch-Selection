@@ -169,7 +169,7 @@ class RhoLossRW(ReweightMethod):
     
 
 
-    def project_onto_simplex_qp(self, weights, rho = 0.25):
+    def project_onto_simplex_qp(self, weights, rho):
         """
         Projects a vector x onto the probability simplex using quadratic programming.
 
@@ -186,11 +186,12 @@ class RhoLossRW(ReweightMethod):
         y = cp.Variable(n)
         
         # Define the objective function: 0.5 * ||y - x||^2
-        objective = cp.Minimize(0.5 * cp.sum_squares(y - weights))
+        objective = cp.Minimize(cp.sum_squares(y - weights))
         
         # Define the constraints
         constraints = [
-            cp.sum(y) == 1,  # The elements must sum to one
+            cp.sum(y) == 1,  # The elements must sum to one,
+            y >= 0,
             cp.sum_squares(y - simplex_center) <= float(rho)/n
             # y >= 1/n - rho/n,           # The elements must be within rho/n of 1/n
             # y <= 1/n + rho/n
@@ -240,13 +241,15 @@ class RhoLossRW(ReweightMethod):
 
         # Compute reducible loss
         reducible_loss = total_loss - irreducible_loss
+        reducible_loss = reducible_loss - torch.max(reducible_loss)
 
-        self.logger.info(f"reducible_loss: {reducible_loss}")
-        weights = F.softmax(alpha * reducible_loss, dim=0)
-        self.logger.info(f"weights: {weights}")
-        weights = weights.cpu().numpy()
-        weights = self.project_onto_simplex_qp(weights, self.rho)
-        weights = torch.tensor(weights, dtype=torch.float32, device=self.device)
+        # self.logger.info(f"reducible_loss: {reducible_loss}")
+        weights = torch.exp(alpha * reducible_loss)
+        weights = weights / torch.sum(weights)
+        # self.logger.info(f"weights: {weights}")
+        # weights = weights.cpu().numpy()
+        # weights = self.project_onto_simplex_qp(weights, self.rho)
+        # weights = torch.tensor(weights, dtype=torch.float32, device=self.device)
         # Return to train mode and return selected indices
         self.logger.info(f"projected_weights: {weights}")
         self.model.train()

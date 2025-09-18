@@ -3,12 +3,12 @@ seed: 12
 methods: 
   - RhoLossRW
 method_opt:
-  alpha: [0.1, 1.0]
+  alpha: [0.00001, 0.01]
   alpha_scheduler: decrease_linear
-  rho: 5.0
+  rho: 2.0
 
 rholoss:
-  holdout_model_path: exp/reweight_test2/RhoLossRW/best_holdout.pth.tar
+  holdout_model_path: exp/best_holdout_model_cifar10/best_holdout.pth.tar
   holdout_percentage: .50
   holdout_num_epochs: 30
   holdout_num_steps: 1000000
