@@ -1,2 +1,2 @@
-from .loss import create_criterion
+from .loss import create_criterion, create_holdout_criterion
 from .optimizer import create_optimizer, create_scheduler

@@ -6,16 +6,25 @@ import torchvision.models as models
 
 def create_model(m_type='resnet101',num_classes=1000, pretrained = False):
     # create various resnet models
+    weights_map = {
+        'resnet18': models.ResNet18_Weights.DEFAULT,
+        'resnet50': models.ResNet50_Weights.DEFAULT,
+        'resnet101': models.ResNet101_Weights.DEFAULT,
+        'resnext50': models.ResNeXt50_32X4D_Weights.DEFAULT,
+        'resnext101': models.ResNeXt101_32X8D_Weights.DEFAULT,
+    }
+    weights = weights_map[m_type] if pretrained else None
+
     if m_type == 'resnet18':
-        model = models.resnet18(pretrained=pretrained)
+        model = models.resnet18(weights=weights)
     elif m_type == 'resnet50':
-        model = models.resnet50(pretrained=pretrained)
+        model = models.resnet50(weights=weights)
     elif m_type == 'resnet101':
-        model = models.resnet101(pretrained=pretrained)
+        model = models.resnet101(weights=weights)
     elif m_type == 'resnext50':
-        model = models.resnext50_32x4d(pretrained=pretrained)
+        model = models.resnext50_32x4d(weights=weights)
     elif m_type == 'resnext101':
-        model = models.resnext101_32x8d(pretrained=pretrained)
+        model = models.resnext101_32x8d(weights=weights)
     else:
         raise ValueError('Wrong Model Type')
         

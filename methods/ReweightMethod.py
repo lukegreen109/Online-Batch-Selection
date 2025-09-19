@@ -11,8 +11,8 @@ from ema_pytorch import EMA
 
 
 
-class SelectionMethod(object):
-    method_name = 'SelectionMethod'
+class ReweightMethod(object):
+    method_name = 'ReweightMethod'
     def __init__(self, config, logger):
         logger.info(f'Creating {self.method_name}...')
         self.config = config
@@ -53,17 +53,12 @@ class SelectionMethod(object):
         )
         self.ema_net.eval()
 
-        self.epochs = config['training_opt']['num_epochs'] if 'num_epochs' in config['training_opt'] else None
-        self.num_steps = config['training_opt']['num_steps'] if 'num_steps' in config['training_opt'] else None
-        if self.epochs is None and self.num_steps is None:
-            raise ValueError('Must specify either num_epochs or num_steps in training_opt')
-        self.num_data_workers = config['training_opt']['num_data_workers']
-        self.batch_size = config['training_opt']['batch_size']
-
         # data
+        self.batch_size = config['training_opt']['batch_size']
+        self.num_data_workers = config['training_opt']['num_data_workers']
+
         self.data_info = getattr(data, config['dataset']['name'])(config, logger)
         self.num_classes = self.data_info['num_classes']
-        
         self.train_dset = self.data_info['train_dset']
         self.test_loader = self.data_info['test_loader']
         self.num_train_samples = self.data_info['num_train_samples']
@@ -98,8 +93,16 @@ class SelectionMethod(object):
             self.holdout_dataloader_augmented = DataLoader(self.holdout_dataset_augmented, batch_size=self.holdout_batch_size, shuffle=True)
             self.holdout_dataloader_unaugmented = DataLoader(self.holdout_dataset_unaugmented, batch_size=self.holdout_batch_size, shuffle=True)
             self.train_dataloader_augmented = DataLoader(self.train_dset, batch_size=self.batch_size, shuffle=True, pin_memory = True, num_workers=self.num_data_workers)
-            self.train_dataloader_unaugmented = DataLoader(self.train_dset_unaugmented, batch_size=self.batch_size, shuffle=True, pin_memory = True, num_workers=self.num_data_workers)      
+            self.train_dataloader_unaugmented = DataLoader(self.train_dset_unaugmented, batch_size=self.batch_size, shuffle=True, pin_memory = True, num_workers=self.num_data_workers)  
 
+        self.epochs = config['training_opt']['num_epochs'] if 'num_epochs' in config['training_opt'] else None
+        self.num_steps = config['training_opt']['num_steps'] if 'num_steps' in config['training_opt'] else None
+        if self.epochs is None and self.num_steps is None:
+            raise ValueError('Must specify either num_epochs or num_steps in training_opt')
+        self.num_data_workers = config['training_opt']['num_data_workers']
+        self.batch_size = config['training_opt']['batch_size']
+        
+        
         self.criterion = create_criterion(config, logger)
 
         self.need_features = False
@@ -161,10 +164,9 @@ class SelectionMethod(object):
         pass
 
     def before_batch(self, i, inputs, targets, indexes, epoch):
-        # online batch selection
-        return inputs, targets, indexes
+        return torch.ones_like(targets).float().cuda() / len(targets)
     
-    def after_batch(self, i, inputs, targets, indexes, outputs):
+    def after_batch(self, i,inputs, targets, indexes,outputs):
         self.ema_net.update()
 
 
@@ -188,12 +190,13 @@ class SelectionMethod(object):
             inputs = datas['input'].cuda()
             targets = datas['target'].cuda()
             indexes = datas['index']
-            inputs, targets, indexes = self.before_batch(i, inputs, targets, indexes, epoch)
+            weights = self.before_batch(i, inputs, targets, indexes, epoch)
             outputs, features = self.model(x=inputs, need_features=self.need_features, targets=targets) if self.need_features else (self.model(x=inputs, need_features=False, targets=targets), None)
             loss = self.criterion(outputs, targets)
+            weighted_loss = torch.sum(loss * weights)
             self.while_update(outputs, loss, targets, epoch, features, indexes, batch_idx=i, batch_size=self.batch_size)
             self.optimizer.zero_grad()
-            loss.backward()
+            weighted_loss.backward()
             self.optimizer.step()
             self.after_batch(i,inputs, targets, indexes,outputs.detach())
             if i % self.config['logger_opt']['print_iter'] == 0:
@@ -202,13 +205,13 @@ class SelectionMethod(object):
                 total = targets.size(0)
                 correct = (predicted == targets).sum().item()
                 train_acc = correct / total
-                self.logger.info(f'Epoch: {epoch}/{self.training_opt["num_epochs"]}, Iter: {i}/{total_batch}, global_step: {self.total_step+i}, Loss: {loss.item():.4f}, Train acc: {train_acc:.4f}, lr: {self.optimizer.param_groups[0]["lr"]:.6f}')
+                self.logger.info(f'Epoch: {epoch}/{self.training_opt["num_epochs"]}, Iter: {i}/{total_batch}, global_step: {self.total_step+i}, Weighted_Loss: {weighted_loss.item():.4f}, Train acc: {train_acc:.4f}, lr: {self.optimizer.param_groups[0]["lr"]:.6f}')
                     
         self.scheduler.step()
         self.total_step = self.total_step + total_batch
         # test
         now = time.time()
-        self.logger.wandb_log({'loss': loss.item(), 'epoch': epoch, 'lr': self.optimizer.param_groups[0]['lr'], self.training_opt['loss_type']: loss.item()})
+        self.logger.wandb_log({'weighted_loss': weighted_loss.item(), 'epoch': epoch, 'lr': self.optimizer.param_groups[0]['lr'], self.training_opt['loss_type']: weighted_loss.item()})
         val_acc, ema_val_acc = self.test()
         self.logger.wandb_log({'val_acc': val_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'total_time': now - self.run_begin_time, 'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'best_val_acc': max(self.best_acc, val_acc)})
         self.logger.info(f'=====> Time: {now - self.run_begin_time:.4f} s, Time this epoch: {now - epoch_begin_time:.4f} s, Total step: {self.total_step}')

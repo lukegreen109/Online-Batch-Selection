@@ -1,4 +1,4 @@
-from methods.SelectionMethod import SelectionMethod
+from methods.ReweightMethod import ReweightMethod
 from methods.method_utils.optimizer import *
 from methods.method_utils.loss import *
 import models
@@ -9,40 +9,40 @@ import torch
 import os
 import torch.nn.functional as F
 import torch.serialization
+import cvxpy as cp
 
 
-class RhoLoss(SelectionMethod):
-    """A class for implementing the RhoLoss selection method, which selects samples based on reducible loss.
+class RhoLossRW(ReweightMethod):
+    """A class for implementing the RhoLoss reweighting method, which reweights samples based on the exponential 
+    of the reducible loss scaled by alpha.
 
-    This class inherits from `SelectionMethod` and uses an irreducible loss model (ILmodel) and a target model
-    to compute reducible loss for sample selection during training. It supports various ratio scheduling strategies
-    for dynamic sample selection and handles model training and loading for specific datasets.
+    This class inherits from `ReweightMethod` and uses an irreducible loss model (ILmodel) and a target model
+    to compute reducible loss for sample selection during training. It supports various alpha scheduling strategies
+    for dynamic sample reweighting and handles model training and loading for specific datasets.
 
     Args:
         config (dict): Configuration dictionary containing method and dataset parameters.
             Expected keys include:
-                - 'method_opt': Dictionary with keys 'ratio', 'budget', 'epochs', 'ratio_scheduler',
-                  'warmup_epochs', 'iter_selection', 'balance'.
+                - 'method_opt': Dictionary with keys 'alpha', 'rho'.
                 - 'rho_loss': Dictionary with key 'training_budget'.
                 - 'dataset': Dictionary with keys 'name' and 'num_classes'.
                 - 'networks': Dictionary with key 'params' containing 'm_type'.
         logger (logging.Logger): Logger instance for logging training and selection information.
     """
-    method_name = 'RhoLoss'
+    method_name = 'RhoLossRW'
     def __init__(self, config, logger):
         super().__init__(config, logger)
-        self.balance = config['method_opt']['balance']
-        self.ratio = config['method_opt']['ratio']
-        self.ratio_scheduler = config['method_opt']['ratio_scheduler'] if 'ratio_scheduler' in config['method_opt'] else 'constant'
-        self.warmup_epochs = config['method_opt']['warmup_epochs'] if 'warmup_epochs' in config['method_opt'] else 0
+        self.alpha = config['method_opt']['alpha']
+        self.alpha_scheduler = config['method_opt']['alpha_scheduler'] if 'alpha_scheduler' in config['method_opt'] else 'constant'
+        self.rho = config['method_opt']['rho']
         self.current_train_indices = np.arange(self.num_train_samples)
         self.reduce_dim = config['method_opt']['reduce_dim'] if 'reduce_dim' in config['method_opt'] else False
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
         self.setup_holdout_model(config, logger)
         
         self.precompute_losses()
 
-        self.warming_up = False
 
     def precompute_losses(self):
         """Precompute irreducible losses for the training dataset using the holdout model."""
@@ -167,34 +167,60 @@ class RhoLoss(SelectionMethod):
 
         self.holdout_model.eval()
     
-    def get_ratio_per_epoch(self, epoch):
-        if epoch < self.warmup_epochs:
-            self.logger.info('warming up')
-            self.warming_up = True
-            return 1.0
-        self.warming_up = False
-        if self.ratio_scheduler == 'constant':
-            return self.ratio
-        elif self.ratio_scheduler == 'increase_linear':
-            min_ratio = self.ratio[0]
-            max_ratio = self.ratio[1]
-            return min_ratio + (max_ratio - min_ratio) * epoch / self.epochs
-        elif self.ratio_scheduler == 'decrease_linear':
-            min_ratio = self.ratio[0]
-            max_ratio = self.ratio[1]
-            return max_ratio - (max_ratio - min_ratio) * epoch / self.epochs
-        elif self.ratio_scheduler == 'increase_exp':
-            min_ratio = self.ratio[0]
-            max_ratio = self.ratio[1]
-            return min_ratio + (max_ratio - min_ratio) * np.exp(epoch / self.epochs)
-        elif self.ratio_scheduler == 'decrease_exp':
-            min_ratio = self.ratio[0]
-            max_ratio = self.ratio[1]
-            return max_ratio - (max_ratio - min_ratio) * np.exp(epoch / self.epochs)
+
+
+    def project_onto_simplex_qp(self, weights, rho):
+        """
+        Projects a vector x onto the probability simplex using quadratic programming.
+
+        Args:
+            x (np.ndarray): The input vector to be projected.
+
+        Returns:
+            np.ndarray: The projection of x onto the probability simplex.
+        """
+        n = len(weights)
+        simplex_center = cp.Constant(np.ones(n) / n)
+
+        # Define the optimization variable y
+        y = cp.Variable(n)
+        
+        # Define the objective function: 0.5 * ||y - x||^2
+        objective = cp.Minimize(cp.sum_squares(y - weights))
+        
+        # Define the constraints
+        constraints = [
+            cp.sum(y) == 1,  # The elements must sum to one,
+            y >= 0,
+            cp.sum_squares(y - simplex_center) <= float(rho)/n
+            # y >= 1/n - rho/n,           # The elements must be within rho/n of 1/n
+            # y <= 1/n + rho/n
+        ]
+        
+        # Define the QP problem and solve it
+        problem = cp.Problem(objective, constraints)
+        problem.solve()
+        
+        # Return the optimal value of y
+        return y.value
+
+
+    def get_alpha_per_epoch(self, epoch):
+        if self.alpha_scheduler == "constant":
+            return self.alpha
+        elif self.alpha_scheduler == "decrease_linear":
+            min_alpha = self.alpha[0]
+            max_alpha = self.alpha[1]
+            return max_alpha - (max_alpha - min_alpha) * epoch / self.epochs
+        elif self.alpha_scheduler == "decrease_exp":
+            min_alpha = self.alpha[0]
+            max_alpha = self.alpha[1]
+            return max_alpha - (max_alpha - min_alpha) * np.exp(epoch / self.epochs)
         else:
             raise NotImplementedError
 
-    def reducible_loss_selection(self, inputs, targets, indexes, selected_num_samples):
+
+    def reducible_loss_weights(self, inputs, targets, indexes, alpha):
         """Select sub-batch with highest reducible loss.
         Args:
             inputs (torch.Tensor): Input data for the current batch.
@@ -215,18 +241,20 @@ class RhoLoss(SelectionMethod):
 
         # Compute reducible loss
         reducible_loss = total_loss - irreducible_loss
+        reducible_loss = reducible_loss - torch.max(reducible_loss)
 
-        # Select samples with highest reducible loss
-        _, indices = torch.topk(reducible_loss, selected_num_samples, largest=True, sorted=False)
-        
-        # Uniform selection during warmup
-        if self.warming_up:
-            self.logger.info('warming up')
-            indices = np.random.choice(len(inputs), size=(selected_num_samples), replace=False)
-        
+        # self.logger.info(f"reducible_loss: {reducible_loss}")
+        weights = torch.exp(alpha * reducible_loss)
+        weights = weights / torch.sum(weights)
+        # self.logger.info(f"weights: {weights}")
+        # weights = weights.cpu().numpy()
+        # weights = self.project_onto_simplex_qp(weights, self.rho)
+        # weights = torch.tensor(weights, dtype=torch.float32, device=self.device)
         # Return to train mode and return selected indices
+        self.logger.info(f"projected_weights: {weights}")
         self.model.train()
-        return indices
+        return weights
+
 
     def before_batch(self, i, inputs, targets, indexes, epoch):
         """Prepare the batch for training by selecting samples based on reducible loss.
@@ -239,24 +267,13 @@ class RhoLoss(SelectionMethod):
         Returns:
             tuple: Selected inputs, targets, and indexes for the current batch.
         """
-        # Get the ratio for the current epoch
-        # print(f"Indexes: {indexes}")
-        ratio = self.get_ratio_per_epoch(epoch)
-        if ratio == 1.0:
-            if i == 0:
-                self.logger.info('using all samples')
-            return super().before_batch(i, inputs, targets, indexes, epoch)
-        else:
-            if i == 0:
-                self.logger.info(f'balance: {self.balance}')
-                self.logger.info('selecting samples for epoch {}, ratio {}'.format(epoch, ratio))
+        alpha = self.get_alpha_per_epoch(epoch)
 
-        # Get indices based on reducible loss
-        selected_num_samples = max(1, int(inputs.shape[0] * ratio))
-        indices = self.reducible_loss_selection(inputs, targets, indexes, selected_num_samples)
-        inputs = inputs[indices]
-        targets = targets[indices]
-        if not self.warming_up:
-            indices = indices.to(indexes.device)
-        indexes = indexes[indices]
-        return inputs, targets, indexes
+        if i == 0:
+            self.logger.info('selecting samples for epoch {}, alpha {}'.format(epoch, alpha))
+
+        # Get projected weights based on the exponential of the reducible loss scaled by alpha
+        weights = self.reducible_loss_weights(inputs, targets, indexes, alpha)
+
+        weights = torch.ones_like(weights) / len(weights)
+        return weights
