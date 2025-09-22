@@ -18,11 +18,13 @@ def visualize_with_fiftyone(
     """
     Visualize embeddings interactively in FiftyOne.
 
+    Automatically slices embeddings, labels, and filepaths if `selected_idx` is provided.
+
     Args:
         embs: np.ndarray of shape (N, D) – embedding vectors
         labels: array-like of shape (N,) – class labels (int or str)
         filepaths: list of file paths (length N) – must exist or be placeholders
-        selected_idx: indices to mark as selected (optional)
+        selected_idx: indices to visualize (optional)
         epoch: identifier for dataset naming
         method: one of {"umap", "tsne"}
         persistent: whether dataset persists across App sessions
@@ -33,6 +35,17 @@ def visualize_with_fiftyone(
         (dataset, results, session)
     """
     log = logger.info if logger else print
+
+    # Convert to arrays
+    labels = np.array(labels)
+    filepaths = np.array(filepaths)
+
+    # Apply selection
+    if selected_idx is not None:
+        selected_idx = np.asarray(selected_idx)
+        embs = embs[selected_idx]
+        labels = labels[selected_idx]
+        filepaths = filepaths[selected_idx]
 
     # Sanity checks
     if len(embs) == 0:
@@ -55,8 +68,8 @@ def visualize_with_fiftyone(
 
     # Mark selected indices
     sel_mask = np.zeros(N, dtype=bool)
-    if selected_idx:
-        sel_mask[np.asarray(selected_idx)] = True
+    if selected_idx is not None:
+        sel_mask[np.arange(N)] = True
         log(f"[FiftyOne] {sel_mask.sum()} samples marked as 'selected'")
 
     # Add samples
