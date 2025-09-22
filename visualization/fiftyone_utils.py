@@ -73,16 +73,21 @@ def visualize_with_fiftyone(
         log(f"[FiftyOne] {sel_mask.sum()} samples marked as 'selected'")
 
     # Add samples
-    samples = []
-    for i in range(N):
-        sample = fo.Sample(filepath=str(filepaths[i]))
-        sample["embedding"] = embs[i].tolist()
-        sample["ground_truth"] = fo.Classification(label=str(labels[i]))
-        if sel_mask[i]:
-            sample.tags.append("selected")
-        samples.append(sample)
+    # Create samples from filepaths first
+    samples = [fo.Sample(filepath=fp) for fp in filepaths]
     ds.add_samples(samples)
-    log(f"[FiftyOne] Added {len(samples)} samples to dataset '{ds_name}'")
+
+    # Add data in bulk (much faster than looping)
+    ds.set_values("embedding", embs)
+    ds.set_values("ground_truth", [fo.Classification(label=str(l)) for l in labels])
+
+    # Tag selected samples in bulk
+    if selected_idx is not None:
+        selected_view = ds.select(selected_idx)
+        selected_view.tag_samples("selected")
+        log(f"[FiftyOne] Tagged {len(selected_view)} samples as 'selected'")
+
+    log(f"[FiftyOne] Added {len(ds)} samples and their data to dataset '{ds_name}'")
 
     # Compute visualization
     log(f"[FiftyOne] Computing {method.upper()} visualization (brain_key='{brain_key}')")
@@ -99,7 +104,7 @@ def visualize_with_fiftyone(
     session = fo.launch_app(ds)
 
     # Display the embedding visualization directly
-    results.visualize(labels="ground_truth")
+    results.visualize(labels=labels)
 
     log(f"[FiftyOne] Visualization ready in App (dataset='{ds_name}', brain_key='{brain_key}')")
 
