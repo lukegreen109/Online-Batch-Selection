@@ -84,9 +84,10 @@ def visualize_with_fiftyone(
     # Launch interactive app
     log("[FiftyOne] Launching App...")
     session = fo.launch_app(ds)
-    session.plots.add_plot(
-        brain_key, results.visualize(labels="ground_truth")
-    )
+
+    # Display the embedding visualization directly
+    results.visualize(labels="ground_truth")
+
     log(f"[FiftyOne] Visualization ready in App (dataset='{ds_name}', brain_key='{brain_key}')")
 
     return ds, results, session
