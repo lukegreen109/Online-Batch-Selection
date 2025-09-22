@@ -22,6 +22,7 @@ class Visualizer:
         self.seed = config["seed"]
         self.dataset_name = config["dataset"]["name"].lower()
         self.epoch = epoch
+        self.notebook = config.get("notebook", False)
 
         # visualization config
         vis_cfg = config['visualization']
@@ -79,6 +80,7 @@ class Visualizer:
                     epoch=self.epoch,
                     method=method,
                     persistent=self.persistent,
+                    notebook=self.notebook
                 )
         else:
             for method in self.embedding_methods:

@@ -14,6 +14,7 @@ def visualize_with_fiftyone(
     persistent: bool = True,
     params: Optional[dict] = None,
     logger: Optional[logging.Logger] = None,
+    notebook: bool = False
 ) -> Tuple[fo.Dataset, fob.VisualizationResults, fo.Session]:
     """
     Visualize embeddings interactively in FiftyOne.
@@ -30,11 +31,14 @@ def visualize_with_fiftyone(
         persistent: whether dataset persists across App sessions
         params: optional method-specific params for compute_visualization
         logger: optional logger (defaults to print if not provided)
+        notebook: boolean determining whether to set context to notebook or not
 
     Returns:
         (dataset, results, session)
     """
     log = logger.info if logger else print
+
+    if notebook: fo.context = "Notebook"
 
     # Convert to arrays
     labels = np.array(labels)
