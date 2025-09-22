@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "anywidget>=0.9.11",
     "clip",
     "ema-pytorch>=0.7.7",
     "fiftyone>=1.8.0",
