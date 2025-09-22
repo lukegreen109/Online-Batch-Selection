@@ -157,6 +157,11 @@ class SelectionMethod(object):
         pass
         
     def before_epoch(self):
+        # get ratio per epoch
+        self.logger.info(f'getting ratio per epoch.')
+        self.ratio = self.get_ratio_per_epoch()
+        self.logger.info(f'done. epoch={self.epoch}, ratio={self.ratio}')
+
         # select samples for this epoch
         return np.arange(self.num_train_samples)
     
@@ -245,6 +250,30 @@ class SelectionMethod(object):
                 use_fiftyone=self.use_fiftyone,
                 filepaths=filepaths if self.use_fiftyone else None
             )
+
+    def get_ratio_per_epoch(self):
+        if self.epoch < self.warmup_epochs:
+            return 1.0
+        if self.ratio_scheduler == 'constant':
+            return self.ratio
+        elif self.ratio_scheduler == 'increase_linear':
+            min_ratio = self.ratio[0]
+            max_ratio = self.ratio[1]
+            return min_ratio + (max_ratio - min_ratio) * self.epoch / self.epochs
+        elif self.ratio_scheduler == 'decrease_linear':
+            min_ratio = self.ratio[0]
+            max_ratio = self.ratio[1]
+            return max_ratio - (max_ratio - min_ratio) * self.epoch / self.epochs
+        elif self.ratio_scheduler == 'increase_exp':
+            min_ratio = self.ratio[0]
+            max_ratio = self.ratio[1]
+            return min_ratio + (max_ratio - min_ratio) * np.exp(self.epoch / self.epochs)
+        elif self.ratio_scheduler == 'decrease_exp':
+            min_ratio = self.ratio[0]
+            max_ratio = self.ratio[1]
+            return max_ratio - (max_ratio - min_ratio) * np.exp(self.epoch / self.epochs)
+        else:
+            raise NotImplementedError
 
     def after_run(self):
         pass
