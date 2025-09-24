@@ -1,5 +1,6 @@
 output_dir: null
 seed: 12
+num_gpus: 1
 methods: 
   - RhoLoss
 method_opt:
