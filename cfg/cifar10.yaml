@@ -20,7 +20,7 @@ bayesian:
   clip_architecture: 'RN50'
 
 rholoss:
-  holdout_model_path: None
+  holdout_model_path: /home/phancock/Online-Batch-Selection/exp/test_rholoss/RhoLoss/best_holdout.pth.tar
   holdout_percentage: .50
   holdout_num_epochs: 30
   holdout_num_steps: 1000000
