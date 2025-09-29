@@ -25,7 +25,7 @@ visualization:
   enable: True
   use_fiftyone: True
   use_fiftyone_dataloader: False
-  persistent: False
+  persistent: True
   milestones:
     - 0.000
     - 0.500
@@ -47,6 +47,7 @@ visualization:
 
 dataset:
   name: MNIST
+  foz_name: MNIST
   root: ./_MNIST
 
 networks:

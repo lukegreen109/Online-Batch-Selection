@@ -1,121 +1,112 @@
 import fiftyone as fo
+import fiftyone.zoo as foz
+import fiftyone.brain as fob
 import torch
-#import splinecam
 
-import os
 import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.manifold import TSNE
-import umap
-
-from .fiftyone_utils import visualize_with_fiftyone
-from .splinecam_utils import visualize_with_splinecam
 
 class Visualizer:
     """
-    A class for visualizing model predictions and data samples using FiftyOne and SplineCam.
-    Accepts a pre-trained model and a dataset, and provides methods to visualize predictions
+    Accepts a dataset, then makes a FiftyOne session & dataset object.
+    At each milestone, we'll pass in the updated embeddings and compare them.
     """
-    def __init__(self, config, logger, model=None, epoch=None):
+    def __init__(self, config, logger):
         self.config = config
         self.logger = logger
-        self.seed = config["seed"]
-        self.dataset_name = config["dataset"]["name"].lower()
-        self.epoch = epoch
-        self.notebook = config.get("notebook", False)
+        self.seed = config.get("seed", None)
+
+        # get names of datasets
+        dataset_info = config.get("dataset", {})
+        self.dataset_name = dataset_info.get("name", "mnist").lower()
+        self.foz_name = dataset_info.get("foz_name", self.dataset_name).lower()
 
         # visualization config
-        vis_cfg = config['visualization']
-        self.persistent = vis_cfg.get('persistent', False)
-        self.save_dir = vis_cfg["save_dir"]
+        vis_cfg = config.get("visualization", {})
+        self.persistent = vis_cfg.get("persistent", True)
+        self.save_dir = vis_cfg.get("save_dir", "./vis")
         self.embedding_methods = vis_cfg.get("embedding_methods", ["tsne", "umap"])
-        os.makedirs(self.save_dir, exist_ok=True) # for saving plots
 
         # embedding params
-        embedding_params = vis_cfg["embedding_params"]
-        self.tsne_params = embedding_params["tsne"]
-        self.umap_params = embedding_params["umap"]
+        embedding_params = vis_cfg.get("embedding_params", {})
+        self.umap_params = embedding_params.get("umap", {})
+        self.tsne_params = embedding_params.get("tsne", {})
 
-    def visualize_embeddings(
-        self, 
-        embs, 
-        labels, 
-        epoch=None, 
-        selected_idx=None, 
-        use_fiftyone=False, 
-        filepaths=None,
-    ):
+    def setup_fiftyone_session(self, dataset_name="mnist"):
         """
-        Visualize embeddings of data points using dimensionality reduction or FiftyOne.
-
-        Args:
-            embs (np.ndarray or torch.Tensor): Embedding vectors of shape (N, D)
-            labels (np.ndarray or torch.Tensor): Class labels of shape (N,)
-            epoch (int, optional): Epoch number, used for filenames and dataset naming
-            selected_idx (list or np.ndarray, optional): Indices of samples to highlight
-            use_fiftyone (bool, optional): If True, visualize using FiftyOne; otherwise, matplotlib
-            filepaths (list of str, optional): Paths to images corresponding to embeddings (required for FiftyOne)
+        Initializes a persistent FiftyOne dataset and session one time.
         """
-        def _get_reducer(method):
-            if method == "tsne":
-                return TSNE(**self.tsne_params, random_state=self.seed)
-            if method == "umap":
-                return umap.UMAP(**self.umap_params, random_state=self.seed)
-            raise ValueError(f"Unknown method: {method}")
+        self.logger.info("Setting up persistent FiftyOne session...")
 
-        embs = np.array(embs)
-        labels = np.array(labels)
-
-        if filepaths is None:
-            filepaths = ["placeholder.jpg"] * len(embs) # dummy paths
-
-        if use_fiftyone:
-            for method in self.embedding_methods:
-                self.logger.info(f"Visualizing embeddings with FiftyOne (method: {method})...")
-                visualize_with_fiftyone(
-                    embs,
-                    labels,
-                    filepaths=filepaths,
-                    selected_idx=selected_idx,
-                    epoch=self.epoch,
-                    method=method,
-                    persistent=self.persistent,
-                    notebook=self.notebook
-                )
-        else:
-            for method in self.embedding_methods:
-                self.logger.info(f"Visualizing embeddings with {method}...")
-                reduced = _get_reducer(method).fit_transform(embs)
-                self._plot_and_save(reduced, labels, method, epoch, selected_idx)
-
-    def _plot_and_save(self, reduced, labels, method, epoch, selected_idx=None):
-        plt.figure(figsize=(6,6))
-
-        # Plot all points
-        scatter = plt.scatter(
-            reduced[:,0], reduced[:,1],
-            c=labels, cmap="tab10", s=5, alpha=0.6, label="All"
+        # delete previous dataset
+        if fo.dataset_exists(dataset_name):
+            fo.delete_dataset(dataset_name)
+        
+        # load in FiftyOne dataset (e.g. MNIST test split)
+        self.fo_dataset = foz.load_zoo_dataset(
+            dataset_name,
+            split="test",
+            download_if_necessary=True,
+            persistent=True,
         )
 
-        # Get handles & labels for class legend
-        handles, labels_legend = scatter.legend_elements()
+        # Launch the app and store the session object
+        self.fo_session = fo.launch_app(self.fo_dataset, auto=False)
+        self.logger.info(f"FiftyOne App launched. Point browser to: {self.fo_session.url}")
+
+        return self.fo_session, self.fo_dataset
+
+    def add_run(self, epoch=-1, embeddings=None, labels=None):
+        """
+        Calculates embeddings and adds them (and optional labels) to FiftyOne.
+        """
+
+        if self.fo_dataset is None or self.fo_session is None:
+            raise ValueError("Visualizer must be initialized with setup_fiftyone_session first")
+
+        if embeddings is None:
+            raise ValueError("You must provide exactly embeddings")
+
+        if labels is not None:
+            self.logger.info(f"Adding labels for epoch {epoch}...")
+            if torch.is_tensor(labels):
+                labels = labels.cpu().numpy()
+            
+            # create a dynamic field name for this epoch's labels/predictions
+            label_field = f"predictions_epoch_{epoch}"
+            
+            # attach the labels to the FiftyOne dataset
+            self.fo_dataset.set_values(label_field, labels)
+            self.logger.info(f"Labels stored in field '{label_field}'")
         
-        # Plot selected points if provided
-        if selected_idx is not None and len(selected_idx) > 0:
-            selected_idx = np.array(selected_idx)
-            selected_scatter = plt.scatter(
-                reduced[selected_idx,0], reduced[selected_idx,1],
-                facecolors='none', edgecolors='red', s=30, linewidths=0.8,
-                label="Selected", marker='o'
+        # validate embeddings
+        embedding_field = f"embs_epoch_{epoch}"
+        if embeddings is not None:
+            if torch.is_tensor(embeddings):
+                embeddings = embeddings.cpu().numpy()
+            if not isinstance(embeddings, np.ndarray):
+                raise TypeError("embeddings must be a numpy array or torch.Tensor")
+            if embeddings.shape[0] != len(self.fo_dataset):
+                raise ValueError(
+                    f"Embeddings dimension mismatch: got {embeddings.shape[0]} "
+                    f"vs dataset size {len(self.fo_dataset)}"
+                )
+            self.fo_dataset.set_values(embedding_field, embeddings)
+
+        for method in self.embedding_methods:
+            # for naming conventions
+            brain_key = f"{method}_epoch_{epoch}"
+            params = self.umap_params if method == "umap" else self.tsne_params
+            
+            results = fob.compute_visualization(
+                self.fo_dataset,
+                embeddings=embeddings,
+                brain_key=brain_key,
+                method=method,
+                seed=self.seed,
+                **params,
             )
-            handles.append(selected_scatter)
-            labels_legend.append("Selected")
 
-        # Add legend and set the title
-        plt.legend(handles, labels_legend, title="Classes", loc="best")
-        plt.title(f"{method} Embeddings (epoch={epoch})")
-
-        fname = os.path.join(self.save_dir, f"embeddings_{method}_epoch{epoch}.png")
-        plt.savefig(fname, dpi=300)
-        plt.close()
+        self.fo_dataset.load_brain_results(model_name="test123", brain_key=brain_key)
+        #self.fo_session.wait()
+        #self.fo_session.view = self.fo_dataset.view()
 

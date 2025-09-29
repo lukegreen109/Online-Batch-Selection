@@ -7,6 +7,8 @@ import time
 from .method_utils import *
 from visualization.Visualization import Visualizer
 import matplotlib.pyplot as plt
+import data
+import fiftyone.zoo as foz
 
 class SelectionMethod(object):
     method_name = 'SelectionMethod'
@@ -58,7 +60,6 @@ class SelectionMethod(object):
         self.batch_size = config['training_opt']['batch_size']
         self.training_opt = config.get('training_opt', None)
 
-
         # Criterion
         self.criterion = create_criterion(config, logger)
 
@@ -69,49 +70,41 @@ class SelectionMethod(object):
         self.embedding_methods = []
         self.embedding_params = {}
 
+        # get names of datasets
+        dataset_info = config.get("dataset", {})
+        self.dataset_name = dataset_info.get("name", "mnist").lower()
+            # arg passed to fetch dataset
+        self.foz_name = dataset_info.get("foz_name", self.dataset_name).lower()
+            # arg passed to fetch FO dataset
+
+        # dataset handling
+        self.data_info = getattr(data, config['dataset']['name'])(config, logger) 
+            # load in normal dataset
+        self.num_classes = self.data_info['num_classes']
+        self.train_dset = self.data_info['train_dset']
+        self.test_loader = self.data_info['test_loader']
+        self.num_train_samples = self.data_info['num_train_samples']
+
+        # visualization handling
         vis_cfg = config.get('visualization', {})
         self.visualization_enabled = vis_cfg.get('enable', False)
-        self.use_fiftyone = vis_cfg.get('use_fiftyone', False)
-        self.use_fiftyone_dataloader = vis_cfg.get('use_fiftyone_dataloader', False)
 
         if self.visualization_enabled:
             try:
-                self.visualizer = Visualizer(config, logger, self.model, epoch=self.epoch)
+                self.visualizer = Visualizer(config, logger)
                 self.milestones = vis_cfg.get('milestones', [])
                 self.milestone_epochs = [int(p * self.epochs) for p in self.milestones]
                 self.embedding_params = vis_cfg["embedding_params"]
                 self.embedding_methods = [m.lower() for m in vis_cfg["embedding_methods"]]
+                self.logger.info("Setting up FO session & dataset...")
+                self.fo_session, self.fo_dataset = self.visualizer.setup_fiftyone_session(dataset_name=self.foz_name)
+                self.logger.info("Done setting up FO session & dataset.")
                 self.logger.info(f'Visualization enabled. Milestone epochs: {self.milestone_epochs}, params: {self.embedding_params}')
             except Exception as e:
                 self.logger.info(f"Visualization was disabled because init failed: {e}")
                 self.visualization_enabled = False
-
-        # Dataset handling
-        self.dataset_name = config['dataset']['name'].lower()
-
-        if self.use_fiftyone_dataloader:
-            import fiftyone as fo
-            from fiftyone.utils.torch import FiftyOneTorchDataset
-            import fiftyone.zoo as foz
-            self.logger.info(f'Loading {self.dataset_name} from FiftyOne Zoo')
-            self.fo_test_dataset = foz.load_zoo_dataset(self.dataset_name, split="test", shuffle=True)
-            self.fo_train_dataset = foz.load_zoo_dataset(self.dataset_name, split="train", shuffle=True)
-            self.train_dset = FiftyOneTorchDataset(self.fo_train_dataset, label_field="ground_truth")
-            self.test_loader = torch.utils.data.DataLoader(
-                FiftyOneTorchDataset(self.fo_test_dataset, label_field="ground_truth"),
-                batch_size=self.batch_size,
-                shuffle=False,
-                num_workers=self.num_data_workers,
-                pin_memory=True
-            )
-            self.num_train_samples = len(self.fo_train_dataset)
         else:
-            import data
-            self.data_info = getattr(data, config['dataset']['name'])(config, logger)
-            self.num_classes = self.data_info['num_classes']
-            self.train_dset = self.data_info['train_dset']
-            self.test_loader = self.data_info['test_loader']
-            self.num_train_samples = self.data_info['num_train_samples']
+            self.logger.info(f"Not running visualization because it was disabled in config.")
 
     def resume(self, resume_path):
         if os.path.isfile(resume_path):
@@ -155,101 +148,9 @@ class SelectionMethod(object):
 
     def before_run(self):
         pass
-        
-    def before_epoch(self):
-        # get ratio per epoch
-        self.logger.info(f'getting ratio per epoch.')
-        self.ratio = self.get_ratio_per_epoch()
-        self.logger.info(f'done. epoch={self.epoch}, ratio={self.ratio}')
-
-        # select samples for this epoch
-        return np.arange(self.num_train_samples)
-    
-    def _extract_embeddings_and_maybe_save_images(self):
-        """
-        Extract embeddings and save images if FiftyOne is enabled.
-        Images are used for thumbnail visualization in FiftyOne.
-        Returns:
-            all_embs (torch.Tensor): shape (N, D)
-            all_labels (torch.Tensor): shape (N,)
-            filepaths (list): list of file paths if FiftyOne is enabled, else empty list
-        """
-        all_embs, all_labels, filepaths = [], [], []
-        save_dir = os.path.join(self.config['output_dir'], "fiftyone_images", f"{self.dataset_name}", f"epoch_{self.epoch}")
-        os.makedirs(save_dir, exist_ok=True)
-
-        with torch.no_grad():
-            for datas in self.test_loader:
-                x_batch = datas['input'].cuda()
-                y_batch = datas['target'].cuda()
-                indexes = datas['index']
-
-                _, embs = self.model.feat_nograd_forward(x_batch)
-
-                if self.use_fiftyone:
-                    for i, idx in enumerate(indexes):
-                        img_path = os.path.join(save_dir, f"sample_{idx}.png")
-                        if self.in_channels == 1: # 1 channel
-                            image = x_batch[i].cpu().squeeze().numpy()
-                        else: # 3 channels
-                            image = np.transpose(x_batch[i].cpu().numpy(), (1, 2, 0))
-                        plt.imsave(img_path, image, cmap="gray")
-                        filepaths.append(img_path)
-
-                all_embs.append(embs.cpu())
-                all_labels.append(y_batch.cpu())
-
-        return torch.cat(all_embs, dim=0), torch.cat(all_labels, dim=0), filepaths
-    
-    def _extract_embeddings(self):
-        """
-        Extract embeddings and corresponding images.
-
-        Returns:
-            all_embs (torch.Tensor): shape (N, D)
-            all_labels (torch.Tensor): shape (N,)
-            all_images (list[np.ndarray]): list of N images (H, W) or (H, W, 3)
-        """
-        all_embs, all_labels, all_images = [], [], []
-
-        with torch.no_grad():
-            for datas in self.test_loader:
-                x_batch = datas['input'].cuda()
-                y_batch = datas['target'].cuda()
-
-                # Forward pass for embeddings
-                _, embs = self.model.feat_nograd_forward(x_batch)
-
-                # Collect embeddings + labels
-                all_embs.append(embs.cpu())
-                all_labels.append(y_batch.cpu())
-
-                # Convert batch to numpy images (handle channels)
-                for i in range(x_batch.size(0)):
-                    if self.in_channels == 1:  # grayscale
-                        image = x_batch[i].cpu().squeeze().numpy()
-                    else:  # RGB
-                        image = np.transpose(x_batch[i].cpu().numpy(), (1, 2, 0))
-                    all_images.append(image)
-
-        return torch.cat(all_embs, dim=0), torch.cat(all_labels, dim=0), all_images
-
-
-    def after_epoch(self):
-        if self.visualization_enabled and self.epochs is not None and self.epoch in self.milestone_epochs:
-            self.logger.info(f'Visualizing embeddings at epoch {self.epoch} using {self.embedding_methods}')
-
-            all_embs, all_labels, filepaths = self._extract_embeddings_and_maybe_save_images()
-
-            # Visualize embeddings
-            self.visualizer.visualize_embeddings(
-                all_embs,
-                all_labels,
-                epoch=self.epoch,
-                selected_idx=None,
-                use_fiftyone=self.use_fiftyone,
-                filepaths=filepaths if self.use_fiftyone else None
-            )
+            
+    def after_run(self):
+        pass
 
     def get_ratio_per_epoch(self):
         if self.epoch < self.warmup_epochs:
@@ -275,14 +176,30 @@ class SelectionMethod(object):
         else:
             raise NotImplementedError
 
-    def after_run(self):
-        pass
+    def before_epoch(self):
+        # get ratio per epoch
+        self.logger.info(f'getting ratio per epoch.')
+        self.ratio = self.get_ratio_per_epoch()
+        self.logger.info(f'done. epoch={self.epoch}, ratio={self.ratio}')
+
+        # select samples for this epoch
+        return np.arange(self.num_train_samples)
+    
+    def after_epoch(self):
+        # Embedding Visualization
+        if self.visualization_enabled and self.epoch in self.milestone_epochs:
+
+            # compute embeddings
+            embeddings, labels, images = self.extract_embeddings()
+
+            # add embeddings to Voxel51 session
+            self.visualizer.add_run(epoch=self.epoch, embeddings=embeddings)
 
     def before_batch(self, i, inputs, targets, indexes):
         # online batch selection
         return inputs, targets, indexes
     
-    def after_batch(self, i,inputs, targets, indexes,outputs):
+    def after_batch(self, i,inputs, targets, indexes, outputs):
         pass
 
     def train(self, list_of_train_idx):
@@ -375,3 +292,35 @@ class SelectionMethod(object):
 
         return acc
 
+    def extract_embeddings(self):
+        """
+        Extract embeddings and corresponding images.
+
+        Returns:
+            all_embs (torch.Tensor): shape (N, D)
+            all_labels (torch.Tensor): shape (N,)
+            all_images (list[np.ndarray]): list of N images (H, W) or (H, W, 3)
+        """
+        all_embs, all_labels, all_images = [], [], []
+
+        with torch.no_grad():
+            for datas in self.test_loader:
+                x_batch = datas['input'].cuda()
+                y_batch = datas['target'].cuda()
+
+                # Forward pass for embeddings
+                _, embs = self.model.feat_nograd_forward(x_batch)
+
+                # Collect embeddings + labels
+                all_embs.append(embs.cpu())
+                all_labels.append(y_batch.cpu())
+
+                # Convert batch to numpy images (handle channels)
+                for i in range(x_batch.size(0)):
+                    if self.in_channels == 1:  # grayscale
+                        image = x_batch[i].cpu().squeeze().numpy()
+                    else:  # RGB
+                        image = np.transpose(x_batch[i].cpu().numpy(), (1, 2, 0))
+                    all_images.append(image)
+
+        return torch.cat(all_embs, dim=0), torch.cat(all_labels, dim=0), all_images

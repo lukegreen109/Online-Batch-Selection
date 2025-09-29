@@ -1,3 +1,2 @@
 from .Visualization import Visualizer
-from .fiftyone_utils import visualize_with_fiftyone
 from .splinecam_utils import visualize_with_splinecam
