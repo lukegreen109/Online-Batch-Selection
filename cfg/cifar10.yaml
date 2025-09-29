@@ -19,6 +19,32 @@ method_opt:
   alpha_scheduler: custom
   rho: 0
 
+bayesian:
+  adaptive_alpha: False
+  alpha: 0.2
+  tau: 4
+  prior_precision: 10
+  num_effective_data: 200
+  laplace_momentum: 0.99
+  n_f_samples: 256
+  clip_architecture: 'RN50'
+
+rholoss:
+  holdout_model_path: /home/phancock/Online-Batch-Selection/exp/test_rholoss/RhoLoss/best_holdout.pth.tar
+  holdout_percentage: .50
+  holdout_num_epochs: 30
+  holdout_num_steps: 1000000
+  holdout_batch_size: 320
+  holdout_optimizer: AdamW
+  holdout_loss_params: {}
+  holdout_optim_params: {lr: 0.001, betas: [0.9, 0.999], momentum: 0.9, weight_decay: 0.01}
+  holdout_loss_type: CrossEntropy
+  networks:
+    type: Small_cnn
+    params: 
+      m_type: 'Small_cnn'
+      num_classes: 10
+
 dataset:
   name: CIFAR10
   root: ./_CIFAR
