@@ -56,6 +56,8 @@ def TinyImageNet(config, logger):
 
     dst_train = datasets.ImageFolder(root=os.path.join(config['dataset']['root'], 'tiny-imagenet-200/train'), transform=transform)
     dst_test = datasets.ImageFolder(root=os.path.join(config['dataset']['root'], 'tiny-imagenet-200/val'), transform=test_transform)
+
+    dst_train_unaugmented = datasets.ImageFolder(root=os.path.join(config['dataset']['root'], 'tiny-imagenet-200/train'), transform=test_transform)
     # print(dst_test.targets)
     config['training_opt']['test_batch_size'] = config['training_opt']['batch_size'] if 'test_batch_size' not in config['training_opt'] else config['training_opt']['test_batch_size']
     test_loader = torch.utils.data.DataLoader(
@@ -66,6 +68,7 @@ def TinyImageNet(config, logger):
     return {
         'num_classes': num_classes,
         'train_dset': wrapped_dataset(dst_train),
+        'train_dset_unaugmented': wrapped_dataset(dst_train_unaugmented),
         'test_loader': test_loader,
         'num_train_samples': len(dst_train)
     }

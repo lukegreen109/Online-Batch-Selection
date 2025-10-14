@@ -324,6 +324,7 @@ def CIFAR10_LT(config, logger):
     # )
     dst_train = IMBALANCECIFAR10(root = config['dataset']['root'], imb_factor = config['dataset']['imb_factor'], rand_number = config['dataset']['rand_number'], train = True, download= True, transform= transform)
     dst_test = datasets.CIFAR10(config['dataset']['root'], train=False, download=True, transform = test_transform)
+    dst_train_unaugmented = datasets.CIFAR10(config['dataset']['root'], train=True, download=True, transform = test_transform)
     # class_names = dst_train.classes
     # dst_train.targets = torch.tensor(dst_train.targets, dtype=torch.long)
     # dst_test.targets = torch.tensor(dst_test.targets, dtype=torch.long)
@@ -336,6 +337,7 @@ def CIFAR10_LT(config, logger):
     return {
         'num_classes': num_classes,
         'train_dset': wrapped_dataset(dst_train),
+        'train_dset_unaugmented': wrapped_dataset(dst_train_unaugmented),
         'test_loader': test_loader,
         'num_train_samples': len(dst_train),
         "classes": cifar10_classes,
@@ -369,11 +371,15 @@ def CIFAR100(config, logger):
     dst_train = datasets.CIFAR100(
         config['dataset']['root'], train=True, download=True, transform= transform
     )
+
+    dst_train_unaugmented = datasets.CIFAR10(
+        config['dataset']['root'], train=True, download=True, transform= test_transform)
     
     dst_test = datasets.CIFAR100(config['dataset']['root'], train=False, download=True, transform = test_transform)
     # class_names = dst_train.classes
     dst_train.targets = torch.tensor(dst_train.targets, dtype=torch.long)
     dst_test.targets = torch.tensor(dst_test.targets, dtype=torch.long)
+    dst_train_unaugmented.targets = torch.tensor(dst_train_unaugmented.targets, dtype=torch.long)
     config['training_opt']['test_batch_size'] = config['training_opt']['batch_size'] if 'test_batch_size' not in config['training_opt'] else config['training_opt']['test_batch_size']
     test_loader = torch.utils.data.DataLoader(
         wrapped_dataset(dst_test), batch_size = config['training_opt']['test_batch_size'],
@@ -383,6 +389,7 @@ def CIFAR100(config, logger):
     return {
         'num_classes': num_classes,
         'train_dset': wrapped_dataset(dst_train),
+        'train_dset_unaugmented': wrapped_dataset(dst_train_unaugmented),
         'test_loader': test_loader,
         'num_train_samples': len(dst_train),
         "classes": cifar100_classes,

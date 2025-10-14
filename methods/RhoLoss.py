@@ -218,11 +218,11 @@ class RhoLoss(SelectionMethod):
 
         # Select samples with highest reducible loss
         _, indices = torch.topk(reducible_loss, selected_num_samples, largest=True, sorted=False)
-        
+
         # Uniform selection during warmup
         if self.warming_up:
             self.logger.info('warming up')
-            indices = np.random.choice(len(inputs), size=(selected_num_samples), replace=False)
+            indices = np.random.choice(len(inputs), size=(selected_num_samples)*self.ratio, replace=False)
         
         # Return to train mode and return selected indices
         self.model.train()
