@@ -24,6 +24,7 @@ class SelectionMethod(object):
         self.best_acc = 0
         self.best_epoch = 0
         self.need_features = False
+        self.last_selection_method = config.get("methods")[-1]
 
         # Model creation
         model_type = config['networks']['type']
@@ -96,9 +97,6 @@ class SelectionMethod(object):
                 self.milestone_epochs = [int(p * self.epochs) for p in self.milestones]
                 self.embedding_params = vis_cfg["embedding_params"]
                 self.embedding_methods = [m.lower() for m in vis_cfg["embedding_methods"]]
-                self.logger.info("Setting up FO session & dataset...")
-                self.fo_session, self.fo_dataset = self.visualizer.setup_fiftyone_session(dataset_name=self.foz_name)
-                self.logger.info("Done setting up FO session & dataset.")
                 self.logger.info(f'Visualization enabled. Milestone epochs: {self.milestone_epochs}, params: {self.embedding_params}')
             except Exception as e:
                 self.logger.info(f"Visualization was disabled because init failed: {e}")
@@ -150,7 +148,16 @@ class SelectionMethod(object):
         pass
             
     def after_run(self):
-        pass
+        """
+        Called after all training epochs are complete.
+        Handles final FiftyOne visualization computations and session closure.
+        """
+        if self.visualization_enabled:
+            if self.method_name == self.last_selection_method:
+                self.logger.info('Computing all visualizations & closing FiftyOne session...')
+                self.visualizer.compute_all_visualizations()
+                self.visualizer.launch_app()
+                self.logger.info("Done")
 
     def get_ratio_per_epoch(self):
         if self.epoch < self.warmup_epochs:
@@ -188,13 +195,9 @@ class SelectionMethod(object):
     def after_epoch(self):
         # Embedding Visualization
         if self.visualization_enabled and self.epoch in self.milestone_epochs:
-
-            # compute embeddings
             embeddings, labels, images = self.extract_embeddings()
-
-            # add embeddings to Voxel51 session
-            self.visualizer.add_run(epoch=self.epoch, embeddings=embeddings)
-
+            self.visualizer.add_run(epoch=self.epoch, embeddings=embeddings, labels=labels, selection_method=self.method_name)
+        
     def before_batch(self, i, inputs, targets, indexes):
         # online batch selection
         return inputs, targets, indexes

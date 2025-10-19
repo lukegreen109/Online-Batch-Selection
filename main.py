@@ -48,9 +48,6 @@ def main():
         f.close()
     print('=====> Config file loaded.')
 
-
-
-
     if args.log_file is not None:
         config['log_file'] = args.log_file
     
@@ -59,6 +56,7 @@ def main():
         config['seed'] = secrets.randbelow(5000) 
 
     skip_redundant_methods = config.get('skip_redundant_methods', True)
+    #visualization_enabled = config.get('visualization').get('enable', False)
 
     if args.base_dir is None:
         args.base_dir = './exp/'
@@ -86,7 +84,6 @@ def main():
         if args.notes is not None:
             args.base_dir = args.base_dir + '_' + args.notes
     
-
     # Check if methods is a list
     if not isinstance(config['methods'], list):
         raise ValueError("The config file must contain a 'methods' key with a list of method names.")
@@ -109,8 +106,6 @@ def main():
         # Create output directory
         os.makedirs(args.output_dir, exist_ok=True)
         # method_config = copy.deepcopy(config)
-
-
 
         # wandb_not_upload
         if args.wandb_not_upload:
