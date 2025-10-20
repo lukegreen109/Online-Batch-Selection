@@ -9,7 +9,6 @@ method_opt:
   ratio_scheduler: constant
   warmup_epochs: 0
 skip_redundant_methods: False
-notebook: True
 
 bayesian:
   adaptive_alpha: False
@@ -26,7 +25,7 @@ visualization:
   enable: True
   use_fiftyone: True
   use_fiftyone_dataloader: False
-  persistent: False
+  persistent: True
   milestones:
     - 0.000
     - 0.500
@@ -48,6 +47,7 @@ visualization:
 
 dataset:
   name: MNIST
+  foz_name: MNIST
   root: ./_MNIST
 
 networks:
@@ -58,7 +58,7 @@ networks:
     in_channels: 1
 
 training_opt:
-  num_epochs: 4
+  num_epochs: 1
   num_steps: 1000
   num_data_workers: 4
   batch_size: 128
