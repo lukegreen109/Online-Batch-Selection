@@ -261,6 +261,14 @@ class RhoLoss(SelectionMethod):
         # Compute reducible loss
         reducible_loss = total_loss - irreducible_loss
 
+        # Record average total, irreducible and reducible loss for logging
+        # avg_total_loss = total_loss.mean().item()
+        # avg_irreducible_loss = irreducible_loss.mean().item()
+        # avg_reducible_loss = reducible_loss.mean().item()
+        # self.logger.wandb_log({'Average Total Loss': avg_total_loss, 
+        #             'Average Irreducible Loss': avg_irreducible_loss, 
+        #             'Average Reducible Loss': avg_reducible_loss}, commit=False)
+
         # Select samples with highest reducible loss
         _, indices = torch.topk(reducible_loss, selected_num_samples, largest=True, sorted=False)
         
