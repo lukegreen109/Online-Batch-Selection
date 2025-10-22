@@ -21,11 +21,10 @@ class RhoLoss(SelectionMethod):
     Args:
         config (dict): Configuration dictionary containing method and dataset parameters.
             Expected keys include:
-                - 'method_opt': Dictionary with keys 'ratio', 'budget', 'epochs', 'ratio_scheduler',
-                  'warmup_epochs', 'iter_selection', 'balance'.
-                - 'rho_loss': Dictionary with key 'training_budget'.
-                - 'dataset': Dictionary with keys 'name' and 'num_classes'.
-                - 'networks': Dictionary with key 'params' containing 'm_type'.
+                - 'method_opt': Dictionary with keys 'ratio', 'balance', 'ratio_scheduler', 'warmup_epochs'.
+                - 'rho_loss': Dictionary with keys for the irreducible holdout model.
+                - 'dataset': Dictionary with keys 'name' and 'root'.
+                - 'networks': Dictionary with key 'type' and 'params' containing 'm_type' and 'num_classes'.
         logger (logging.Logger): Logger instance for logging training and selection information.
     """
     method_name = 'RhoLoss'
@@ -64,7 +63,8 @@ class RhoLoss(SelectionMethod):
 
 
     def setup_holdout_model(self, config, logger):
-        """"Retrieve the holdout model for computing irreducible loss.
+        """"
+        Retrieve the holdout model for computing irreducible loss.
         Args:
             config (dict): Configuration dictionary containing model parameters.
             logger (logging.Logger): Logger instance for logging information.
@@ -89,12 +89,9 @@ class RhoLoss(SelectionMethod):
     def train_holdout_model(self, config, logger):
         """
         Train the holdout model for estimating irreducible loss.
-
         Args:
             config (dict): Configuration settings for training.
             logger (Logger): Logging utility.
-            holdout_dataloader (DataLoader): DataLoader for holdout set.
-            holdout_epochs (int): Number of epochs to train the holdout model.
         """
         
         optimizer = create_optimizer(self.holdout_model, config)
@@ -171,7 +168,7 @@ class RhoLoss(SelectionMethod):
         if epoch < self.warmup_epochs:
             self.logger.info('warming up')
             self.warming_up = True
-            return 1.0
+            return 0.1
         self.warming_up = False
         if self.ratio_scheduler == 'constant':
             return self.ratio
@@ -195,10 +192,13 @@ class RhoLoss(SelectionMethod):
             raise NotImplementedError
 
     def reducible_loss_selection(self, inputs, targets, indexes, selected_num_samples):
-        """Select sub-batch with highest reducible loss.
+        """
+        Select sub-batch with highest reducible loss.
         Args:
             inputs (torch.Tensor): Input data for the current batch.
             targets (torch.Tensor): Corresponding target labels for the current batch.
+            indexes (torch.Tensor): Indices of the samples in the current batch.
+            selected_num_samples (int): Number of samples to select based on reducible loss.
         Returns:
             torch.Tensor: Indices of the selected samples.
         """
@@ -216,20 +216,24 @@ class RhoLoss(SelectionMethod):
         # Compute reducible loss
         reducible_loss = total_loss - irreducible_loss
 
+        # Record average total, irreducible and reducible loss for logging
+        # avg_total_loss = total_loss.mean().item()
+        # avg_irreducible_loss = irreducible_loss.mean().item()
+        # avg_reducible_loss = reducible_loss.mean().item()
+        # self.logger.wandb_log({'Average Total Loss': avg_total_loss, 
+        #             'Average Irreducible Loss': avg_irreducible_loss, 
+        #             'Average Reducible Loss': avg_reducible_loss}, commit=False)
+
         # Select samples with highest reducible loss
         _, indices = torch.topk(reducible_loss, selected_num_samples, largest=True, sorted=False)
-
-        # Uniform selection during warmup
-        if self.warming_up:
-            self.logger.info('warming up')
-            indices = np.random.choice(len(inputs), size=(selected_num_samples)*self.ratio, replace=False)
         
         # Return to train mode and return selected indices
         self.model.train()
         return indices
 
     def before_batch(self, i, inputs, targets, indexes, epoch):
-        """Prepare the batch for training by selecting samples based on reducible loss.
+        """
+        Prepare the batch for training by selecting samples based on reducible loss.
         Args:
             i (int): Current batch index.
             inputs (torch.Tensor): Input data for the current batch.
@@ -253,7 +257,13 @@ class RhoLoss(SelectionMethod):
 
         # Get indices based on reducible loss
         selected_num_samples = max(1, int(inputs.shape[0] * ratio))
-        indices = self.reducible_loss_selection(inputs, targets, indexes, selected_num_samples)
+
+        # Uniform selection during warmup
+        if self.warming_up:
+            self.logger.info('warming up')
+            indices = np.random.choice(len(inputs), size=(selected_num_samples), replace=False)
+        else:
+            indices = self.reducible_loss_selection(inputs, targets, indexes, selected_num_samples)
         inputs = inputs[indices]
         targets = targets[indices]
         if not self.warming_up:
