@@ -2,12 +2,13 @@ output_dir: null
 seed: 12
 num_gpus: 1
 methods: 
-  - RhoLoss
+  - RhoLossIS
 method_opt:
   ratio: 0.1
   balance: False
   ratio_scheduler: constant
   warmup_epochs: 0
+  temperature: 1.3
 
 bayesian:
   adaptive_alpha: False
@@ -20,7 +21,7 @@ bayesian:
   clip_architecture: 'RN50'
 
 rholoss:
-  holdout_model_path: /home/phancock/Online-Batch-Selection/exp/test_rholoss/RhoLoss/best_holdout.pth.tar
+  holdout_model_path: None
   holdout_percentage: .50
   holdout_num_epochs: 30
   holdout_num_steps: 1000000
