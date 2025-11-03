@@ -9,6 +9,7 @@ from visualization.Visualization import Visualizer
 import matplotlib.pyplot as plt
 import data
 import fiftyone.zoo as foz
+import fiftyone as fo
 
 class SelectionMethod(object):
     method_name = 'SelectionMethod'
@@ -120,13 +121,39 @@ class SelectionMethod(object):
             self.logger.info(("=> no checkpoint found at '{}'".format(resume_path)))
 
     def save_checkpoint(self, state, is_best, filename='checkpoint.pth.tar'):
-        filename = os.path.join(self.config['output_dir'],filename)
-        best_filename = os.path.join(self.config['output_dir'],'model_best.pth.tar')
+        base_filename = f"{self.method_name}_{filename}"
+        filename = os.path.join(self.config['output_dir'], base_filename)
+        best_filename = os.path.join(self.config['output_dir'], f'{self.method_name}_model_best.pth.tar')
         torch.save(state, filename)
         self.logger.info(f'Save checkpoint to {filename}')
         if is_best:
             shutil.copyfile(filename, best_filename)
             self.logger.info(f'Save best checkpoint to {best_filename}')
+
+    def _save_model(self, filename=None):
+        checkpoint = {
+            'epoch': self.epoch,
+            'state_dict': self.model.module.state_dict() if hasattr(self.model, 'module') else self.model.state_dict(),
+            'optimizer': self.optimizer.state_dict(),
+            'scheduler': self.scheduler.state_dict(),
+            'best_acc': self.best_acc,
+            'best_epoch': self.best_epoch
+        }
+        
+        # Use the existing save_checkpoint function
+        filename = filename if filename is not None else f'checkpoint_epoch_{self.epoch}.pth.tar'
+        self.save_checkpoint(checkpoint, is_best=False, filename=filename)
+
+    def _export_snapshot(self, path=None):
+        """Saves the entire dataset with all runs and embeddings."""
+        if self.visualization_enabled:
+            path = path if path is not None else f"./saved_runs/{self.dataset_name}"
+            self.visualizer.fo_dataset.export(
+                export_dir=path,
+                dataset_type=fo.types.FiftyOneDataset
+            )
+            self.logger.info(f"Saved to: {path}")
+            return path
 
     def run(self):
         self.before_run()
@@ -152,11 +179,74 @@ class SelectionMethod(object):
         Called after all training epochs are complete.
         Handles final FiftyOne visualization computations and session closure.
         """
-        if self.visualization_enabled:
-            if self.method_name == self.last_selection_method:
-                self.logger.info('Computing all visualizations & closing FiftyOne session...')
+        if self.method_name == self.last_selection_method: # After all runs...
+            if self.visualization_enabled:
+                # 1. Compute ground truth embeddings using HF model
+                self.visualizer.add_huggingface_ground_truth_run()
+
+                # 2. Compute embeddings after training all models & all milestones
+                all_method_names = self.config.get("methods", [self.method_name])
+                self.logger.info(f"Running final visualization for all methods: {all_method_names}")
+                for method_name in all_method_names:
+                    self.logger.info(f"Processing method: {method_name}")
+                    for milestone_epoch in self.milestone_epochs:
+                        try:
+                            self.logger.info(f'Loading model weights for epoch {milestone_epoch}')
+                            
+                            # Load model weights from saved checkpoint
+                            checkpoint_path = os.path.join(
+                                self.config['output_dir'], 
+                                f'{method_name}_checkpoint_epoch_{milestone_epoch}.pth.tar'
+                            )
+                            
+                            if os.path.exists(checkpoint_path):
+                                checkpoint = torch.load(checkpoint_path, map_location='cpu')
+                                
+                                # Load the saved weights into the model
+                                if hasattr(self.model, 'module'):
+                                    self.model.module.load_state_dict(checkpoint['state_dict'])
+                                else:
+                                    self.model.load_state_dict(checkpoint['state_dict'])
+                                
+                                self.logger.info(f'Successfully loaded weights for epoch {milestone_epoch}')
+                                
+                                # Compute embeddings with the loaded model
+                                # self.logger.info(f'Computing embeddings for epoch {milestone_epoch}')
+                                # embeddings, labels, images = self.extract_embeddings()
+
+                                # Get predictions for checkpoint model
+                                self.logger.info(f'Extracting predictions for epoch {milestone_epoch}')
+                                outputs, preds, pred_labels = self.extract_predictions()
+                                self.logger.info(f'Extracted {preds.shape[0]} predictions.')
+
+                                embeddings = self.visualizer.hf_embs # Use HF model's embeddings
+                                labels = preds # Use our own model's predictions
+                                
+                                # Add run to visualizer
+                                self.visualizer.add_run(
+                                    epoch=milestone_epoch, 
+                                    embeddings=embeddings, 
+                                    labels=labels, 
+                                    selection_method=method_name
+                                )
+                                
+                                self.logger.info(f'Successfully added visualization for epoch {milestone_epoch}')
+                            else:
+                                self.logger.info(f'Checkpoint not found for epoch {milestone_epoch}: {checkpoint_path}')
+                            
+                        except Exception as e:
+                            self.logger.info(f"Failed to process milestone epoch {milestone_epoch}: {e}")
+                            continue
+
+                self.logger.info('Computing all visualizations & launching FiftyOne app...')
                 self.visualizer.compute_all_visualizations()
+
+                self.logger.info("Saving snapshot of Voxel51 run...")
+                self._export_snapshot()
+
+                self.logger.info("Launching Voxel51 Application...")
                 self.visualizer.launch_app()
+
                 self.logger.info("Done")
 
     def get_ratio_per_epoch(self):
@@ -193,10 +283,12 @@ class SelectionMethod(object):
         return np.arange(self.num_train_samples)
     
     def after_epoch(self):
-        # Embedding Visualization
+        # save model weights instead of saving embedding
         if self.visualization_enabled and self.epoch in self.milestone_epochs:
-            embeddings, labels, images = self.extract_embeddings()
-            self.visualizer.add_run(epoch=self.epoch, embeddings=embeddings, labels=labels, selection_method=self.method_name)
+            self.logger.info(f'Saving model weights for milestone epoch {self.epoch}')
+            self._save_model()
+            #embeddings, labels, images = self.extract_embeddings()
+            #self.visualizer.add_run(epoch=self.epoch, embeddings=embeddings, labels=labels, selection_method=self.method_name)
         
     def before_batch(self, i, inputs, targets, indexes):
         # online batch selection
@@ -284,7 +376,7 @@ class SelectionMethod(object):
             for i, datas in enumerate(self.test_loader):
                 inputs = datas['input'].cuda()
                 targets = datas['target'].cuda()
-                outputs = self.model(inputs)
+                outputs = model(inputs)
                 preds = torch.argmax(outputs, dim=1)
                 all_preds.append(preds.cpu().numpy())
                 all_labels.append(targets.cpu().numpy())
@@ -295,35 +387,46 @@ class SelectionMethod(object):
 
         return acc
 
-    def extract_embeddings(self):
+    def extract_predictions(self):
         """
-        Extract embeddings and corresponding images.
+        Extract predictions and corresponding labels from the test set
+        using the provided model.
+
+        Args:
+            model (torch.nn.Module): The model (potentially wrapped) to use.
 
         Returns:
-            all_embs (torch.Tensor): shape (N, D)
-            all_labels (torch.Tensor): shape (N,)
-            all_images (list[np.ndarray]): list of N images (H, W) or (H, W, 3)
+            all_outputs (torch.Tensor): shape (N, num_classes) - raw logits
+            all_preds (torch.Tensor): shape (N,) - predicted class indices
+            all_labels (torch.Tensor): shape (N,) - ground truth labels
         """
-        all_embs, all_labels, all_images = [], [], []
+        model = self.model
+        self.logger.info('Extracting Predictions')
+        unwrapped_model = model.module if hasattr(model, 'module') else model
+        unwrapped_model.eval()
+        
+        all_preds = []
+        all_labels = []
+        all_outputs = [] 
 
         with torch.no_grad():
-            for datas in self.test_loader:
-                x_batch = datas['input'].cuda()
-                y_batch = datas['target'].cuda()
+            for i, datas in enumerate(self.test_loader):
+                inputs = datas['input'].cuda()
+                targets = datas['target'].cuda()
+                
+                # Use the unwrapped 'model'
+                outputs = unwrapped_model(inputs) 
+                preds = torch.argmax(outputs, dim=1) 
+                
+                all_outputs.append(outputs.cpu())
+                all_preds.append(preds.cpu())
+                all_labels.append(targets.cpu())
 
-                # Forward pass for embeddings
-                _, embs = self.model.feat_nograd_forward(x_batch)
+        # Concatenate results
+        all_outputs = torch.cat(all_outputs, dim=0)
+        all_preds = torch.cat(all_preds, dim=0)
+        all_labels = torch.cat(all_labels, dim=0)
+        
+        self.logger.info('Done extracting predictions')
+        return all_outputs, all_preds, all_labels
 
-                # Collect embeddings + labels
-                all_embs.append(embs.cpu())
-                all_labels.append(y_batch.cpu())
-
-                # Convert batch to numpy images (handle channels)
-                for i in range(x_batch.size(0)):
-                    if self.in_channels == 1:  # grayscale
-                        image = x_batch[i].cpu().squeeze().numpy()
-                    else:  # RGB
-                        image = np.transpose(x_batch[i].cpu().numpy(), (1, 2, 0))
-                    all_images.append(image)
-
-        return torch.cat(all_embs, dim=0), torch.cat(all_labels, dim=0), all_images
