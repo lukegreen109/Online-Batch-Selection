@@ -21,10 +21,10 @@ method_opt:
 
 bayesian:
   adaptive_alpha: False
-  alpha: 0.2
-  tau: 4
+  alpha: 0.3
+  tau: 12
   prior_precision: 10
-  num_effective_data: 200
+  num_effective_data: 1000
   laplace_momentum: 0.99
   n_f_samples: 256
   clip_architecture: 'RN50'
@@ -40,9 +40,9 @@ rholoss:
   holdout_optim_params: {lr: 0.001, betas: [0.9, 0.999], momentum: 0.9, weight_decay: 0.01}
   holdout_loss_type: CrossEntropy
   networks:
-    type: Small_cnn
+    type: ResNet_torchvision
     params: 
-      m_type: 'Small_cnn'
+      m_type: 'resnet18'
       num_classes: 10
 
 dataset:
