@@ -79,8 +79,8 @@ class custom_logger():
         wandb.init(project=project, name=name, config=config)
         
 
-    def wandb_log(self, log_dict):
-        wandb.log(log_dict)
+    def wandb_log(self, log_dict, commit = True):
+        wandb.log(log_dict, commit = commit)
 
     def wandb_finish(self):
         wandb.finish()

@@ -53,10 +53,14 @@ class ReweightMethod(object):
         )
         self.ema_net.eval()
 
-        # data
-        self.batch_size = config['training_opt']['batch_size']
+        self.epochs = config['training_opt']['num_epochs'] if 'num_epochs' in config['training_opt'] else None
+        self.num_steps = config['training_opt']['num_steps'] if 'num_steps' in config['training_opt'] else None
+        if self.epochs is None and self.num_steps is None:
+            raise ValueError('Must specify either num_epochs or num_steps in training_opt')
         self.num_data_workers = config['training_opt']['num_data_workers']
+        self.batch_size = config['training_opt']['batch_size']
 
+        # data
         self.data_info = getattr(data, config['dataset']['name'])(config, logger)
         self.num_classes = self.data_info['num_classes']
         self.train_dset = self.data_info['train_dset']
@@ -93,16 +97,8 @@ class ReweightMethod(object):
             self.holdout_dataloader_augmented = DataLoader(self.holdout_dataset_augmented, batch_size=self.holdout_batch_size, shuffle=True)
             self.holdout_dataloader_unaugmented = DataLoader(self.holdout_dataset_unaugmented, batch_size=self.holdout_batch_size, shuffle=True)
             self.train_dataloader_augmented = DataLoader(self.train_dset, batch_size=self.batch_size, shuffle=True, pin_memory = True, num_workers=self.num_data_workers)
-            self.train_dataloader_unaugmented = DataLoader(self.train_dset_unaugmented, batch_size=self.batch_size, shuffle=True, pin_memory = True, num_workers=self.num_data_workers)  
+            self.train_dataloader_unaugmented = DataLoader(self.train_dset_unaugmented, batch_size=self.batch_size, shuffle=True, pin_memory = True, num_workers=self.num_data_workers)      
 
-        self.epochs = config['training_opt']['num_epochs'] if 'num_epochs' in config['training_opt'] else None
-        self.num_steps = config['training_opt']['num_steps'] if 'num_steps' in config['training_opt'] else None
-        if self.epochs is None and self.num_steps is None:
-            raise ValueError('Must specify either num_epochs or num_steps in training_opt')
-        self.num_data_workers = config['training_opt']['num_data_workers']
-        self.batch_size = config['training_opt']['batch_size']
-        
-        
         self.criterion = create_criterion(config, logger)
 
         self.need_features = False
@@ -164,9 +160,9 @@ class ReweightMethod(object):
         pass
 
     def before_batch(self, i, inputs, targets, indexes, epoch):
-        return torch.ones_like(targets).float().cuda() / len(targets)
+        return torch.ones_like(targets).float().cuda() / len(targets), inputs, targets, indexes
     
-    def after_batch(self, i,inputs, targets, indexes,outputs):
+    def after_batch(self, i, inputs, targets, indexes, outputs):
         self.ema_net.update()
 
 
@@ -190,13 +186,15 @@ class ReweightMethod(object):
             inputs = datas['input'].cuda()
             targets = datas['target'].cuda()
             indexes = datas['index']
-            weights = self.before_batch(i, inputs, targets, indexes, epoch)
+            weights, inputs, targets, indexes = self.before_batch(i, inputs, targets, indexes, epoch)
             outputs, features = self.model(x=inputs, need_features=self.need_features, targets=targets) if self.need_features else (self.model(x=inputs, need_features=False, targets=targets), None)
             loss = self.criterion(outputs, targets)
-            weighted_loss = torch.sum(loss * weights)
+            weighted_loss = (loss * weights).sum()
             self.while_update(outputs, loss, targets, epoch, features, indexes, batch_idx=i, batch_size=self.batch_size)
             self.optimizer.zero_grad()
             weighted_loss.backward()
+            # Extra gradient clipping can be added here to safeguard against exploding gradients
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             self.optimizer.step()
             self.after_batch(i,inputs, targets, indexes,outputs.detach())
             if i % self.config['logger_opt']['print_iter'] == 0:
@@ -211,7 +209,7 @@ class ReweightMethod(object):
         self.total_step = self.total_step + total_batch
         # test
         now = time.time()
-        self.logger.wandb_log({'weighted_loss': weighted_loss.item(), 'epoch': epoch, 'lr': self.optimizer.param_groups[0]['lr'], self.training_opt['loss_type']: weighted_loss.item()})
+        self.logger.wandb_log({'weighted_loss': weighted_loss.item(), 'epoch': epoch, 'lr': self.optimizer.param_groups[0]['lr']})
         val_acc, ema_val_acc = self.test()
         self.logger.wandb_log({'val_acc': val_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'total_time': now - self.run_begin_time, 'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'best_val_acc': max(self.best_acc, val_acc)})
         self.logger.info(f'=====> Time: {now - self.run_begin_time:.4f} s, Time this epoch: {now - epoch_begin_time:.4f} s, Total step: {self.total_step}')

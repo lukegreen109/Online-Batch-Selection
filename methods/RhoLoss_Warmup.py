@@ -9,10 +9,12 @@ import torch
 import os
 import torch.nn.functional as F
 import torch.serialization
+import wandb
+import matplotlib.pyplot as plt
 
 
-class RhoLossIS(SelectionMethod):
-    """A class for implementing the RhoLoss selection method, which selects samples based on reducible loss.
+class RhoLoss_Warmup(SelectionMethod):
+    """A class for implementing the RhoLoss selection method with a warmup using the irreducible loss values, which selects samples based on reducible loss.
 
     This class inherits from `SelectionMethod` and uses an irreducible loss model (ILmodel) and a target model
     to compute reducible loss for sample selection during training. It supports various ratio scheduling strategies
@@ -27,9 +29,11 @@ class RhoLossIS(SelectionMethod):
                 - 'networks': Dictionary with key 'type' and 'params' containing 'm_type' and 'num_classes'.
         logger (logging.Logger): Logger instance for logging training and selection information.
     """
-    method_name = 'RhoLossIS'
+    method_name = 'RhoLoss_Warmup'
     def __init__(self, config, logger):
         super().__init__(config, logger)
+        self.alpha = config['method_opt']['alpha']
+        self.alpha_scheduler = config['method_opt']['alpha_scheduler'] if 'alpha_scheduler' in config['method_opt'] else 'constant'
         self.balance = config['method_opt']['balance']
         self.ratio = config['method_opt']['ratio']
         self.ratio_scheduler = config['method_opt']['ratio_scheduler'] if 'ratio_scheduler' in config['method_opt'] else 'constant'
@@ -191,8 +195,40 @@ class RhoLossIS(SelectionMethod):
             return max_ratio - (max_ratio - min_ratio) * np.exp(epoch / self.epochs)
         else:
             raise NotImplementedError
+    
+    def get_alpha_per_epoch(self, epoch):
+        if epoch < self.warmup_epochs:
+            self.logger.info('warming up')
+            self.warming_up = True
+            return 0.1
+        self.warming_up = False
+        if self.alpha_scheduler == 'constant':
+            return self.alpha
+        elif self.alpha_scheduler == 'increase_linear':
+            min_alpha = self.alpha[0]
+            max_alpha = self.alpha[1]
+            return min_alpha + (max_alpha - min_alpha) * epoch / self.epochs
+        elif self.alpha_scheduler == 'decrease_linear':
+            min_alpha = self.alpha[0]
+            max_alpha = self.alpha[1]
+            return max_alpha - (max_alpha - min_alpha) * epoch / self.epochs
+        elif self.alpha_scheduler == 'increase_exp':
+            min_alpha = self.alpha[0]
+            max_alpha = self.alpha[1]
+            return min_alpha + (max_alpha - min_alpha) * np.exp(epoch / self.epochs)
+        elif self.alpha_scheduler == 'decrease_exp':
+            min_alpha = self.alpha[0]
+            max_alpha = self.alpha[1]
+            return max_alpha - (max_alpha - min_alpha) * np.exp(epoch / self.epochs)
+        elif self.alpha_scheduler == 'custom':
+            min_alpha = self.alpha[0]
+            max_alpha = self.alpha[1]
+            current_alpha = min_alpha + (max_alpha - min_alpha) * epoch / self.epochs
+            return -2*(current_alpha - 0.5)**2 + 0.5
+        else:
+            raise NotImplementedError
 
-    def reducible_loss_selection(self, inputs, targets, indexes, selected_num_samples):
+    def reducible_loss_selection(self, inputs, targets, indexes, selected_num_samples, epoch):
         """
         Select sub-batch with highest reducible loss.
         Args:
@@ -213,29 +249,49 @@ class RhoLossIS(SelectionMethod):
 
         # Get irreducible loss from holdout model
         irreducible_loss = self.original_train_dset.irreducible_loss_cache[indexes].to(total_loss.device)
-
-        # Compute reducible loss
-        reducible_loss = total_loss - irreducible_loss
-
-        # Method 1 - Create ranking of reducible losses and create softmax rankings with temperature
-        sorted_reducible_loss, ranking = torch.sort(reducible_loss, descending=True)
-        temperature = self.temperature
-        adjusted_ranking = F.softmax(temperature * sorted_reducible_loss, dim=0)
-        # adjusted_ranking = torch.exp(temperature * (sorted_reducible_loss-sorted_reducible_loss.max())) / sum(torch.exp(temperature * (sorted_reducible_loss-sorted_reducible_loss.max())))
  
-        # Method 2 - Use polynomial decay on reducible loss to create probabilities
-        # adjusted_ranking = sorted_reducible_loss.pow(temperature) / torch.sum(sorted_reducible_loss.pow(temperature))
+        ##### Option 1: Weighted combination of total and irreducible loss #####
+        # Adjusted reducible loss with alpha parameter
+        alpha = self.get_alpha_per_epoch(epoch)
+        reducible_loss = alpha * total_loss - (1 - alpha) * irreducible_loss
+        _, indices = torch.topk(reducible_loss, selected_num_samples, largest=True, sorted=False)
+    
+        # # Optional to combine warmup with probabilistic selection
+        # sorted_reducible_loss, ranking = torch.sort(reducible_loss, descending=True)
+        # temperature = self.temperature
+        # weights = F.softmax(temperature * sorted_reducible_loss, dim=0)
+        # weights = torch.clamp(weights, min=1e-12)
+        # indices = np.random.choice(ranking.cpu().numpy(), size=selected_num_samples, replace=False, p=weights.cpu().numpy())
 
-        # Method 3 - Use the rankings directly as probabilities
-        # adjusted_ranking = (len(ranking) - torch.arange(len(rank  ing)).float().to(ranking.device)) / torch.sum(len(ranking) - torch.arange(len(ranking)).float().to(ranking.device))
-        # Sample without replacement based on probability density
+        ###### Option 2: Threshold_value determines when to use low irreducible loss ######
+
+        # # Compute reducible loss
+        # reducible_loss = total_loss - irreducible_loss
+
+        # threshold_value = self.temperature
+
+        # if reducible_loss.mean().item() > threshold_value*irreducible_loss.mean().item(): 
+        #     # Selected samples with low irreducible loss
+        #     _, indices = torch.topk(irreducible_loss, selected_num_samples, largest=False, sorted=False)
+        # else: 
+        #     # Select samples with highest reducible loss
+        #     _, indices = torch.topk(reducible_loss, selected_num_samples, largest=True, sorted=False)
         
-        indices = np.random.choice(ranking.cpu().numpy(), size=selected_num_samples, replace=False, p=adjusted_ranking.cpu().numpy())
-        # Uniform selection during warmup
-        if self.warming_up:
-            self.logger.info('warming up')
-            indices = np.random.choice(len(inputs), size=(selected_num_samples)*self.ratio, replace=False)
-        
+        # Record average total, irreducible and reducible loss for logging
+        avg_batch_total_loss = total_loss.mean().item()
+        avg_batch_irreducible_loss = irreducible_loss.mean().item()
+        avg_batch_reducible_loss = reducible_loss.mean().item()
+        avg_selected_total_loss = total_loss[indices].mean().item()
+        avg_selected_irreducible_loss = irreducible_loss[indices].mean().item()
+        avg_selected_reducible_loss = reducible_loss[indices].mean().item()
+
+        self.logger.wandb_log({'Average Batch Total Loss': avg_batch_total_loss, 
+                    'Average Batch Irreducible Loss': avg_batch_irreducible_loss, 
+                    'Average Batch Reducible Loss': avg_batch_reducible_loss,
+                    'Average Selected Total Loss': avg_selected_total_loss, 
+                    'Average Selected Irreducible Loss': avg_selected_irreducible_loss, 
+                    'Average Selected Reducible Loss': avg_selected_reducible_loss}, commit=False)
+
         # Return to train mode and return selected indices
         self.model.train()
         return indices
@@ -272,9 +328,10 @@ class RhoLossIS(SelectionMethod):
             self.logger.info('warming up')
             indices = np.random.choice(len(inputs), size=(selected_num_samples), replace=False)
         else:
-            indices = self.reducible_loss_selection(inputs, targets, indexes, selected_num_samples)
-
+            indices = self.reducible_loss_selection(inputs, targets, indexes, selected_num_samples, epoch)
         inputs = inputs[indices]
         targets = targets[indices]
+        # if not self.warming_up:
+        #     indices = indices.to(indexes.device)
         indexes = indexes[indices]
         return inputs, targets, indexes

@@ -3,13 +3,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.models as models
 
-def create_model(m_type='small_cnn', num_classes=10, pretrained = False):
-    model = small_cnn()
+def create_model(m_type='Small_cnn', num_classes=10, in_channels = 3, pretrained = False):
+    model = Small_cnn(in_channels = in_channels, num_classes = num_classes)
     return model
 
-class small_cnn(nn.Module):
+class Small_cnn(nn.Module):
     def __init__(self, in_channels=3, num_classes=10, dropout=0):
-        super(small_cnn, self).__init__()
+        super(Small_cnn, self).__init__()
 
         self.conv1 = nn.Conv2d(in_channels, 64, 3)
         self.conv1_drop = nn.Dropout2d(p=dropout)

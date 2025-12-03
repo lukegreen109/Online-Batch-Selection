@@ -2,20 +2,24 @@ output_dir: null
 seed: 12
 num_gpus: 1
 methods: 
-  - RhoLossIS
+  - RhoLoss
+
 method_opt:
   ratio: 0.1
   balance: False
   ratio_scheduler: constant
   warmup_epochs: 0
-  temperature: 1.3
+  temperature: 1.5
+  alpha: [0, 0.5]
+  alpha_scheduler: custom
+  rho: 0
 
 bayesian:
   adaptive_alpha: False
-  alpha: 0.2
-  tau: 4
+  alpha: 0.3
+  tau: 12
   prior_precision: 10
-  num_effective_data: 200
+  num_effective_data: 1000
   laplace_momentum: 0.99
   n_f_samples: 256
   clip_architecture: 'RN50'
@@ -31,9 +35,9 @@ rholoss:
   holdout_optim_params: {lr: 0.001, betas: [0.9, 0.999], momentum: 0.9, weight_decay: 0.01}
   holdout_loss_type: CrossEntropy
   networks:
-    type: Small_cnn
+    type: ResNet_torchvision
     params: 
-      m_type: 'Small_cnn'
+      m_type: 'resnet18'
       num_classes: 10
 
 dataset:
@@ -51,7 +55,7 @@ networks:
 ema_momentum: 0.99
 
 training_opt:
-  num_epochs: 50
+  num_epochs: 100
   # num_steps: 1000000
   num_data_workers: 4
   batch_size: 320
