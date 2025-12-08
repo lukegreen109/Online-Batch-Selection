@@ -53,6 +53,7 @@ class GradNormIS(SelectionMethod):
         train_loader = torch.utils.data.DataLoader(self.train_dset, num_workers=self.num_data_workers, pin_memory=True, batch_sampler=batch_sampler)
         total_batch = len(train_loader)
         epoch_begin_time = time.time()
+        self.num_selected_noisy_indexes = 0
         # train
         for i, datas in enumerate(train_loader):
             inputs = datas['input'].cuda()
@@ -66,8 +67,10 @@ class GradNormIS(SelectionMethod):
                 inputs, targets, indexes, grad, grad_norm = self.before_batch(i, inputs, targets, indexes, epoch)
                 outputs, features = self.model(x=inputs, need_features=self.need_features, targets=targets) if self.need_features else (self.model(x=inputs, need_features=False, targets=targets), None)
                 loss = self.criterion(outputs, targets)
+                self.while_update(outputs, loss, targets, epoch, features, indexes, batch_idx=i, batch_size=self.batch_size)
                 weighted_loss = self.while_update(outputs, loss, targets, epoch, features, indexes, batch_idx=i, batch_size=self.batch_size)
                 self.optimizer.zero_grad()
+                #loss.backward()
                 weighted_loss.backward()
                 self.optimizer.step()
                 self.logger.wandb_log({"sampling": 1, "epoch": epoch})
@@ -81,7 +84,7 @@ class GradNormIS(SelectionMethod):
                 self.optimizer.step()
                 grad_mean, grad = self.calc_grad(inputs, targets, indexes)
                 grad_norm = torch.norm(grad, dim=1)
-                #grad_norm = grad_norm ** 2
+                #grad_norm = grad_norm ** 3
                 self.logger.wandb_log({"sampling": 0, "epoch": epoch})
             outputs, features = self.model(x=inputs, need_features=self.need_features, targets=targets) if self.need_features else (self.model(x=inputs, need_features=False, targets=targets), None)
             #loss = self.criterion(outputs, targets)
@@ -106,6 +109,7 @@ class GradNormIS(SelectionMethod):
             self.tau = self.a_tau * self.tau + (1 - self.a_tau) * ((1 - (1 / (grad_norm ** 2).sum()) * torch.norm((grad_norm - uniform)) ** 2) ** -1/2)
             self.logger.wandb_log({"tau": self.tau, "tauth": tau_th})
             self.after_batch(i,inputs, targets, indexes,outputs.detach())
+            self.num_selected_noisy_indexes += np.intersect1d(indexes.cpu().numpy(), self.noisy_indices.cpu().numpy()).size
             if i % self.config['logger_opt']['print_iter'] == 0:
                 # train acc
                 _, predicted = torch.max(outputs.data, 1)
@@ -120,7 +124,7 @@ class GradNormIS(SelectionMethod):
         now = time.time()
         self.logger.wandb_log({'loss': loss.item(), 'epoch': epoch, 'lr': self.optimizer.param_groups[0]['lr'], self.training_opt['loss_type']: loss.item()})
         val_acc, ema_val_acc = self.test()
-        self.logger.wandb_log({'val_acc': val_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'total_time': now - self.run_begin_time, 'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'best_val_acc': max(self.best_acc, val_acc)})
+        self.logger.wandb_log({'percent noisy points selected': self.num_selected_noisy_indexes / total_batch, 'val_acc': val_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'total_time': now - self.run_begin_time, 'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'best_val_acc': max(self.best_acc, val_acc)})
         self.logger.info(f'=====> Time: {now - self.run_begin_time:.4f} s, Time this epoch: {now - epoch_begin_time:.4f} s, Total step: {self.total_step}')
             # save model
         self.logger.info('=====> Save model')
@@ -195,7 +199,7 @@ class GradNormIS(SelectionMethod):
         
         grad_mean, grad = self.calc_grad(inputs, targets, indexes)
         grad_norm = torch.norm(grad, dim=1)
-        #grad_norm = grad_norm ** 2
+        #grad_norm = grad_norm ** 3
         batch_probs = grad_norm / (grad_norm.sum() + 1e-12)
         batch_probs = batch_probs.detach().cpu().numpy()  # only use probabilities for this batch
         mini_batch_size = max(1,int(ratio * len(inputs)))
@@ -239,9 +243,9 @@ class GradNormIS(SelectionMethod):
     def while_update(self, outputs, loss, targets, epoch, features, indexes, batch_idx, batch_size):
         p_i = self.current_selected_grads
         weights = 1.0 / (batch_size * p_i)
-        weights = weights.to(loss.device, dtype=loss.dtype)
+        #weights = weights.to(loss.device, dtype=loss.dtype)
         # Lets add some bias in rewieghting to weaken variance
-        #weights = weights ** (0.5)
+        #weights = weights ** (2)
         #weights = weights / (weights * p_i).sum() * (batch_size * self.ratio)
         weighted_loss = (loss * weights).sum()
         return weighted_loss
