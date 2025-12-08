@@ -8,6 +8,8 @@ from .method_utils import *
 import data
 from torch.utils.data import DataLoader, Subset
 from ema_pytorch import EMA
+from collections import Counter
+
 
 
 
@@ -25,6 +27,7 @@ class SelectionMethod(object):
         self.start_epoch = 0
         self.best_acc = 0
         self.best_epoch = 0
+        self.num_selected_noisy_indexes = 0
         # gpu
         self.num_gpus = config['num_gpus']
         if self.num_gpus == 0:
@@ -68,6 +71,40 @@ class SelectionMethod(object):
         self.test_loader = self.data_info['test_loader']
         self.num_train_samples = self.data_info['num_train_samples']
 
+
+        if config['dataset']['noise'] == True:
+            self.noise == True
+            all_dataset = self.train_dset
+            all_dataset = all_dataset.dataset
+            noise_percentage = config['dataset']["noise_percent"]
+            # Check it works
+            ##print("Label distribution BEFORE noise:")
+            ##print(Counter(all_dataset.targets))
+            # Get Labels
+            targets = all_dataset.targets
+            # Get % of all_dataset 
+            num_samples = len(targets)
+            num_noisy = int(noise_percentage * num_samples)
+            noisy_indices = torch.randperm(num_samples)[:num_noisy] 
+            # For the 10% chosen we will swap
+            for i in noisy_indices:
+                current_target = targets[i]
+                new_target = np.random.randint(self.num_classes)
+                # Repeat swapping labels until it is different
+                while targets[i] == current_target:
+                    new_target = np.random.randint(self.num_classes)
+                    targets[i] = new_target
+            if(self.noise == True):
+                self.noisy_indices = noisy_indices
+            # Check it works
+            #print("Label distribution AFTER noise:")
+            #print(Counter(all_dataset.targets))
+            
+            ## Reset seeds of random number generator
+        else:
+            self.noise = False
+            self.noisy_indices = np.array([])
+       
         # If including holdout dataset for rholoss holdout model and/or comparison to rholoss
         if config['dataset']['holdout_percentage'] > 0:
                         
@@ -172,6 +209,7 @@ class SelectionMethod(object):
         epoch_begin_time = time.time()
         epoch_loss = 0.0
         num_samples = 0
+        self.num_selected_noisy_indexes = 0
         # train
         epoch_train_acc = 0.0
         for i, datas in enumerate(train_loader):
@@ -194,6 +232,7 @@ class SelectionMethod(object):
             _, predicted = torch.max(outputs.data, 1)
             correct = (predicted == targets).sum().item()
             epoch_train_acc += correct
+            self.num_selected_noisy_indexes = self.num_selected_noisy_indexes +  np.intersect1d(indexes, self.noisy_indices).size
             if i % self.config['logger_opt']['print_iter'] == 0:
                 self.logger.info(f'Epoch: {epoch}/{self.training_opt["num_epochs"]}, Iter: {i}/{total_batch}, global_step: {self.total_step+i}, Loss: {epoch_loss / num_samples}, Train acc: {epoch_train_acc / num_samples}, lr: {self.optimizer.param_groups[0]["lr"]:.6f}')
         avg_epoch_train_loss = epoch_loss / num_samples
@@ -202,11 +241,16 @@ class SelectionMethod(object):
         self.total_step = self.total_step + total_batch
         # test
         now = time.time()
-        self.logger.wandb_log({'train_loss': avg_epoch_train_loss, 'train_acc': avg_epoch_train_acc, 'epoch': epoch, 'lr': self.optimizer.param_groups[0]['lr'], self.training_opt['loss_type']: loss.item()}, commit=False)
-        val_acc, ema_val_acc, avg_epoch_test_loss = self.test()
-        self.logger.wandb_log({'val_loss': avg_epoch_test_loss, 'val_acc': val_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'total_time': now - self.run_begin_time, 'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'best_val_acc': max(self.best_acc, val_acc)})
+        self.logger.info(f'=====> Epoch: {epoch}/{self.training_opt["num_epochs"]}, global_step: {self.total_step+i}, lr: {self.optimizer.param_groups[0]["lr"]:.6f}, Train Loss: {avg_epoch_train_loss:.4f}, Train acc: {avg_epoch_train_acc:.4f}')
+
+        # test and log to wandb
+        val_acc, val_loss, ema_val_acc = self.test()
         self.logger.info(f'=====> Time: {now - self.run_begin_time:.4f} s, Time this epoch: {now - epoch_begin_time:.4f} s, Total step: {self.total_step}')
-            # save model
+        self.logger.wandb_log({'epoch': epoch, 'lr': self.optimizer.param_groups[0]['lr'], 'val_loss': val_loss, 'val_acc': val_acc, 'train_loss': avg_epoch_train_loss,
+                                'train_acc': avg_epoch_train_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'best_val_acc': max(self.best_acc, val_acc), 'total_time': now - self.run_begin_time,
+                                'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'percent noisy points selected': self.num_selected_noisy_indexes / len(self.train_dset)})
+
+        # save model
         self.logger.info('=====> Save model')
         is_best = False
         if val_acc > self.best_acc:
