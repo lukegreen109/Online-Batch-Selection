@@ -19,8 +19,6 @@ run_ablation.sh
 _CIFAR_N/
 
 # configs
-ablation1/
-ablation2/
 configs.py
 run_ablation.sh
 
@@ -33,6 +31,3 @@ wandb/
 
 # vscode
 .vscode/
-
-
-*.ipynb
