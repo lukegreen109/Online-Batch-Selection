@@ -32,6 +32,47 @@ CUDA_VISIBLE_DEVICES=0 uv run main.py --cfg cfg/cifar10.yaml --wandb_not_upload
 ```
 The `--wandb_not_upload` is optional and is used to keep wandb log files locally without uploading them to the wandb cloud. CUDA_VISIBLE_DEVICES specifies which GPU device to use. Multiple GPU devices are supported (i.e. CUDA_VISIBLE_DEVICES="0,2").
 
+## Repository Structure
+
+The repository is organized as follows:
+
+### Core Components
+
+- **`methods/selectionmethod.py`** - Parent class containing the main training loop and core batch selection logic. All selection methods inherit from this base class. All selection methods are implemented by overwriting the `self.beforebatch()` method.
+
+- **`methods/`** - Implementation of various batch selection methods. Each method extends the base `SelectionMethod` class. The list of methods include Full, Uniform, DivBS, RhoLoss, Bayesian, MaxLoss, GradNorm, GradNormIS.
+
+- **`cfg/`** – Configuration files for different datasets and experiments (e.g., `cifar10.yaml`).  
+  You can specify which batch selection methods to run by listing them in the config file, for example:
+
+  ```yaml
+  methods:
+    - RhoLoss
+    - DivBS
+    - Bayesian
+    - Full
+  ```
+
+  > **Note:** `RhoLoss` and `Bayesian` require additional hyperparameters.
+
+- **`main.py`** - Entry point for running experiments. Handles argument parsing and experiment initialization.
+
+### Data
+
+- **`_TINYIMAGENET/`** - Tiny-ImageNet dataset directory (see [Data Preparation](#data-preparation)).
+- **`_CIFAR/`** - CIFAR datasets (automatically downloaded).
+
+### Experiments
+
+- **`exp/`** - Experiment results and logs (git-ignored).
+- **`wandb/`** - Weights & Biases logging directory (git-ignored).
+
+### Key Files to Review
+
+1. Start with `selectionmethod.py` to understand the training loop architecture
+2. Explore `methods/` to see specific batch selection implementations
+3. Check `cfg/` for experiment configuration options
+
 ## Development
 
 ### Managing Dependencies
