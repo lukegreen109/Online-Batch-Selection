@@ -8,6 +8,8 @@ import numpy as np
 import os
 import torch.nn.functional as F
 import torch.serialization
+from torch.utils.data import DataLoader, Subset
+
 
 
 class RhoLoss(SelectionMethod):
@@ -36,11 +38,35 @@ class RhoLoss(SelectionMethod):
         self.current_train_indices = np.arange(self.num_train_samples)
         self.reduce_dim = config['method_opt']['reduce_dim'] if 'reduce_dim' in config['method_opt'] else False
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        self.setup_data(config)
+
         self.setup_holdout_model(config, logger)
         
         self.precompute_losses()
 
-        self.warming_up = False
+        # starting with uniform selection generally helps performance
+        self.uniform_epochs = config['rholoss']['uniform_epochs'] if 'uniform_epochs' in config['rholoss'] else 0
+
+    def setup_data(self, config):
+        """
+        As implemented in RhoLoss, we need to create datasets and loaders for augmented and unaugmented data
+        for both the training set and the holdout set
+        """
+        train_dset_unaugmented = self.data_info['train_dset_unaugmented']
+            
+        self.holdout_batch_size = config['rholoss']['holdout_batch_size']
+
+        # Apply same indices to both datasets
+        self.train_dset = Subset(self.original_train_dset, self.train_indices)
+        self.train_dset_unaugmented = Subset(train_dset_unaugmented, self.train_indices)
+        self.holdout_dataset_augmented = Subset(self.original_train_dset, self.holdout_indices)
+        self.holdout_dataset_unaugmented = Subset(train_dset_unaugmented, self.holdout_indices)
+
+        self.holdout_dataloader_augmented = DataLoader(self.holdout_dataset_augmented, batch_size=self.holdout_batch_size, shuffle=True)
+        self.holdout_dataloader_unaugmented = DataLoader(self.holdout_dataset_unaugmented, batch_size=self.holdout_batch_size, shuffle=True)
+        self.train_dataloader_augmented = DataLoader(self.train_dset, batch_size=self.batch_size, shuffle=True, pin_memory = True, num_workers=self.num_data_workers)
+        self.train_dataloader_unaugmented = DataLoader(self.train_dset_unaugmented, batch_size=self.batch_size, shuffle=True, pin_memory = True, num_workers=self.num_data_workers)
 
     def precompute_losses(self):
         """Precompute irreducible losses for the training dataset using the holdout model."""
@@ -189,9 +215,7 @@ class RhoLoss(SelectionMethod):
     def get_ratio_per_epoch(self, epoch):
         if epoch < self.warmup_epochs:
             self.logger.info('warming up')
-            self.warming_up = True
-            return 0.1
-        self.warming_up = False
+            return 1.0
         if self.ratio_scheduler == 'constant':
             return self.ratio
         elif self.ratio_scheduler == 'increase_linear':
@@ -213,9 +237,8 @@ class RhoLoss(SelectionMethod):
         else:
             raise NotImplementedError
 
-    def reducible_loss_selection(self, inputs, targets, indexes, selected_num_samples):
-        """
-        Select sub-batch with highest reducible loss.
+    def reducible_loss_selection(self, inputs, targets, indexes, selected_num_samples, epoch):
+        """Select sub-batch with highest reducible loss.
         Args:
             inputs (torch.Tensor): Input data for the current batch.
             targets (torch.Tensor): Corresponding target labels for the current batch.
@@ -241,24 +264,14 @@ class RhoLoss(SelectionMethod):
         # Select samples with highest reducible loss
         _, indices = torch.topk(reducible_loss, selected_num_samples, largest=True, sorted=False)
         
-        # Record average total, irreducible and reducible loss for logging
-        avg_batch_total_loss = total_loss.mean().item()
-        avg_batch_irreducible_loss = irreducible_loss.mean().item()
-        avg_batch_reducible_loss = reducible_loss.mean().item()
-        avg_selected_total_loss = total_loss[indices].mean().item()
-        avg_selected_irreducible_loss = irreducible_loss[indices].mean().item()
-        avg_selected_reducible_loss = reducible_loss[indices].mean().item()
-
-        self.logger.wandb_log({'Average Batch Total Loss': avg_batch_total_loss, 
-                    'Average Batch Irreducible Loss': avg_batch_irreducible_loss, 
-                    'Average Batch Reducible Loss': avg_batch_reducible_loss,
-                    'Average Selected Total Loss': avg_selected_total_loss, 
-                    'Average Selected Irreducible Loss': avg_selected_irreducible_loss, 
-                    'Average Selected Reducible Loss': avg_selected_reducible_loss}, commit=False)
+        # Override with uniform selection if specified
+        if epoch < self.uniform_epochs:
+            self.logger.info('Uniform selection')
+            indices = torch.randperm(len(inputs))[:selected_num_samples]
         
         # Return to train mode and return selected indices
         self.model.train()
-        return indices
+        return indices.cpu().numpy()
 
     def before_batch(self, i, inputs, targets, indexes, epoch):
         """
@@ -273,7 +286,6 @@ class RhoLoss(SelectionMethod):
             tuple: Selected inputs, targets, and indexes for the current batch.
         """
         # Get the ratio for the current epoch
-        # print(f"Indexes: {indexes}")
         ratio = self.get_ratio_per_epoch(epoch)
         if ratio == 1.0:
             if i == 0:
@@ -286,16 +298,8 @@ class RhoLoss(SelectionMethod):
 
         # Get indices based on reducible loss
         selected_num_samples = max(1, int(inputs.shape[0] * ratio))
-
-        # Uniform selection during warmup
-        if self.warming_up:
-            self.logger.info('warming up')
-            indices = np.random.choice(len(inputs), size=(selected_num_samples), replace=False)
-        else:
-            indices = self.reducible_loss_selection(inputs, targets, indexes, selected_num_samples)
+        indices = self.reducible_loss_selection(inputs, targets, indexes, selected_num_samples, epoch)
         inputs = inputs[indices]
         targets = targets[indices]
-        if not self.warming_up:
-            indices = indices.to(indexes.device)
         indexes = indexes[indices]
         return inputs, targets, indexes
