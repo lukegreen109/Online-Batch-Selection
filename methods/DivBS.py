@@ -68,11 +68,12 @@ class DivBS(SelectionMethod):
             correlations = torch.abs(torch.matmul(D.t(), residual))
             try:
                 idx = torch.multinomial(correlations.squeeze(), 1)
+                # idx = correlations.argmax().unsqueeze(0) # does worse
             except:
                 break
             # print(f'idx: {idx.shape}')
             index_selected.append(idx.item())
-            if len(selected_element) >0:
+            if len(selected_element) > 0:
                 selected_element_matrix = torch.cat(selected_element, dim=1) # n_features, n_selected
                 D_selected = D[:, idx] - torch.matmul(selected_element_matrix,torch.matmul(selected_element_matrix.t(), D[:, idx]))
             else:

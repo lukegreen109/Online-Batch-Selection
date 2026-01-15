@@ -68,37 +68,24 @@ class SelectionMethod(object):
         self.test_loader = self.data_info['test_loader']
         self.num_train_samples = self.data_info['num_train_samples']
 
-        # If including holdout dataset for rholoss holdout model
-        if config['dataset']['include_holdout'] == True:
-            
-            train_dset_unaugmented = self.data_info['train_dset_unaugmented']
-            
-            self.holdout_percentage = config['rholoss']['holdout_percentage']
-            self.holdout_batch_size = config['rholoss']['holdout_batch_size']
+        # If including holdout dataset for rholoss holdout model and/or comparison to rholoss
+        if config['dataset']['holdout_percentage'] > 0:
+                        
+            self.holdout_percentage = config['dataset']['holdout_percentage']
 
-            # Split data into main model and holdout model
-            holdout_len = int(self.num_train_samples * self.holdout_percentage)
-            main_len = int(self.num_train_samples - holdout_len)
+            # get length of training set
+            train_len = int(self.num_train_samples * (1 - self.holdout_percentage))
             
-            # Create augmented and non-augmented datasets
+            # selected random indices for training and holdout
+            permuted_indices = torch.randperm(self.num_train_samples, generator=torch.Generator().manual_seed(config['seed']))
+            self.train_indices = permuted_indices[:train_len]
+            self.holdout_indices = permuted_indices[train_len:]
+
+            # form new training dataset
             self.original_train_dset = self.train_dset
-
-            indices = torch.randperm(len(self.original_train_dset), generator=torch.Generator().manual_seed(config['seed']))
-            main_indices = indices[:main_len]
-            holdout_indices = indices[main_len:]
-
-            # Apply same indices to both datasets
-            self.train_dset = Subset(self.original_train_dset, main_indices)
-            self.train_dset_unaugmented = Subset(train_dset_unaugmented, main_indices)
-            self.holdout_dataset_augmented = Subset(self.original_train_dset, holdout_indices)
-            self.holdout_dataset_unaugmented = Subset(train_dset_unaugmented, holdout_indices)
-
-            self.num_train_samples = main_len
-
-            self.holdout_dataloader_augmented = DataLoader(self.holdout_dataset_augmented, batch_size=self.holdout_batch_size, shuffle=True)
-            self.holdout_dataloader_unaugmented = DataLoader(self.holdout_dataset_unaugmented, batch_size=self.holdout_batch_size, shuffle=True)
-            self.train_dataloader_augmented = DataLoader(self.train_dset, batch_size=self.batch_size, shuffle=True, pin_memory = True, num_workers=self.num_data_workers)
-            self.train_dataloader_unaugmented = DataLoader(self.train_dset_unaugmented, batch_size=self.batch_size, shuffle=True, pin_memory = True, num_workers=self.num_data_workers)      
+            self.train_dset = Subset(self.original_train_dset, self.train_indices)
+            self.num_train_samples = train_len
+   
 
         self.criterion = create_criterion(config, logger)
 
