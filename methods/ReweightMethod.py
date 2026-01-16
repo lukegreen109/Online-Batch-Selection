@@ -200,10 +200,11 @@ class ReweightMethod(object):
             targets = datas['target'].cuda()
             indexes = datas['index']
             weights, inputs, targets, indexes = self.before_batch(i, inputs, targets, indexes, epoch)
-            outputs, features = self.model(x=inputs, need_features=self.need_features, targets=targets) if self.need_features else (self.model(x=inputs, need_features=False, targets=targets), None)
+            # outputs, features = self.model(x=inputs, need_features=self.need_features, targets=targets) if self.need_features else (self.model(x=inputs, need_features=False, targets=targets), None)
+            outputs = self.model(inputs)
             loss = self.criterion(outputs, targets)
             weighted_loss = (loss * weights).sum()
-            self.while_update(outputs, loss, targets, epoch, features, indexes, batch_idx=i, batch_size=self.batch_size)
+            # self.while_update(outputs, loss, targets, epoch, features, indexes, batch_idx=i, batch_size=self.batch_size)
             self.optimizer.zero_grad()
             weighted_loss.backward()
             # Extra gradient clipping can be added here to safeguard against exploding gradients
@@ -225,9 +226,9 @@ class ReweightMethod(object):
         self.total_step = self.total_step + total_batch
         # test
         now = time.time()
-        self.logger.wandb_log({'weighted_loss': weighted_loss.item(), 'epoch': epoch, 'lr': self.optimizer.param_groups[0]['lr']})
-        val_acc, ema_val_acc = self.test()
-        self.logger.wandb_log({'val_acc': val_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'total_time': now - self.run_begin_time, 'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'best_val_acc': max(self.best_acc, val_acc)})
+        self.logger.wandb_log({'train_loss': avg_epoch_train_loss, 'train_acc': avg_epoch_train_acc, 'epoch': epoch, 'lr': self.optimizer.param_groups[0]['lr'], self.training_opt['loss_type']: loss.item()}, commit=False)
+        val_acc, ema_val_acc, avg_epoch_test_loss = self.test()
+        self.logger.wandb_log({'val_loss': avg_epoch_test_loss, 'val_acc': val_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'total_time': now - self.run_begin_time, 'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'best_val_acc': max(self.best_acc, val_acc)})
         self.logger.info(f'=====> Time: {now - self.run_begin_time:.4f} s, Time this epoch: {now - epoch_begin_time:.4f} s, Total step: {self.total_step}')
             # save model
         self.logger.info('=====> Save model')
