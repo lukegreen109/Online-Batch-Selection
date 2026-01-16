@@ -1,5 +1,4 @@
 from methods.SelectionMethod import SelectionMethod
-from methods.ReweightMethod import ReweightMethod
 from methods.method_utils.optimizer import *
 from methods.method_utils.loss import *
 import models
@@ -10,6 +9,8 @@ import torch
 import os
 import torch.nn.functional as F
 import torch.serialization
+from torch.utils.data import DataLoader, Subset
+
 
 
 class RhoLossBPS(SelectionMethod):
@@ -22,10 +23,11 @@ class RhoLossBPS(SelectionMethod):
     Args:
         config (dict): Configuration dictionary containing method and dataset parameters.
             Expected keys include:
-                - 'method_opt': Dictionary with keys 'ratio', 'balance', 'ratio_scheduler', 'warmup_epochs'.
-                - 'rho_loss': Dictionary with keys for the irreducible holdout model.
-                - 'dataset': Dictionary with keys 'name' and 'root'.
-                - 'networks': Dictionary with key 'type' and 'params' containing 'm_type' and 'num_classes'.
+                - 'method_opt': Dictionary with keys 'ratio', 'budget', 'epochs', 'ratio_scheduler',
+                  'warmup_epochs', 'iter_selection', 'balance'.
+                - 'rho_loss': Dictionary with key 'training_budget'.
+                - 'dataset': Dictionary with keys 'name' and 'num_classes'.
+                - 'networks': Dictionary with key 'params' containing 'm_type'.
         logger (logging.Logger): Logger instance for logging training and selection information.
     """
     method_name = 'RhoLossBPS'
@@ -35,15 +37,38 @@ class RhoLossBPS(SelectionMethod):
         self.ratio = config['method_opt']['ratio']
         self.ratio_scheduler = config['method_opt']['ratio_scheduler'] if 'ratio_scheduler' in config['method_opt'] else 'constant'
         self.warmup_epochs = config['method_opt']['warmup_epochs'] if 'warmup_epochs' in config['method_opt'] else 0
-        self.temperature = config['method_opt']['temperature'] if 'temperature' in config['method_opt'] else 0
         self.current_train_indices = np.arange(self.num_train_samples)
         self.reduce_dim = config['method_opt']['reduce_dim'] if 'reduce_dim' in config['method_opt'] else False
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        self.setup_data(config)
+
         self.setup_holdout_model(config, logger)
         
         self.precompute_losses()
 
-        self.warming_up = False
+        # starting with uniform selection generally helps performance
+        self.uniform_epochs = config['rholoss']['uniform_epochs'] if 'uniform_epochs' in config['rholoss'] else 0
+
+    def setup_data(self, config):
+        """
+        As implemented in RhoLoss, we need to create datasets and loaders for augmented and unaugmented data
+        for both the training set and the holdout set
+        """
+        train_dset_unaugmented = self.data_info['train_dset_unaugmented']
+            
+        self.holdout_batch_size = config['rholoss']['holdout_batch_size']
+
+        # Apply same indices to both datasets
+        self.train_dset = Subset(self.original_train_dset, self.train_indices)
+        self.train_dset_unaugmented = Subset(train_dset_unaugmented, self.train_indices)
+        self.holdout_dataset_augmented = Subset(self.original_train_dset, self.holdout_indices)
+        self.holdout_dataset_unaugmented = Subset(train_dset_unaugmented, self.holdout_indices)
+
+        self.holdout_dataloader_augmented = DataLoader(self.holdout_dataset_augmented, batch_size=self.holdout_batch_size, shuffle=True)
+        self.holdout_dataloader_unaugmented = DataLoader(self.holdout_dataset_unaugmented, batch_size=self.holdout_batch_size, shuffle=True)
+        self.train_dataloader_augmented = DataLoader(self.train_dset, batch_size=self.batch_size, shuffle=True, pin_memory = True, num_workers=self.num_data_workers)
+        self.train_dataloader_unaugmented = DataLoader(self.train_dset_unaugmented, batch_size=self.batch_size, shuffle=True, pin_memory = True, num_workers=self.num_data_workers)
 
     def precompute_losses(self):
         """Precompute irreducible losses for the training dataset using the holdout model."""
@@ -65,8 +90,7 @@ class RhoLossBPS(SelectionMethod):
 
 
     def setup_holdout_model(self, config, logger):
-        """"
-        Retrieve the holdout model for computing irreducible loss.
+        """"Retrieve the holdout model for computing irreducible loss.
         Args:
             config (dict): Configuration dictionary containing model parameters.
             logger (logging.Logger): Logger instance for logging information.
@@ -91,9 +115,12 @@ class RhoLossBPS(SelectionMethod):
     def train_holdout_model(self, config, logger):
         """
         Train the holdout model for estimating irreducible loss.
+
         Args:
             config (dict): Configuration settings for training.
             logger (Logger): Logging utility.
+            holdout_dataloader (DataLoader): DataLoader for holdout set.
+            holdout_epochs (int): Number of epochs to train the holdout model.
         """
         
         optimizer = create_optimizer(self.holdout_model, config)
@@ -169,9 +196,7 @@ class RhoLossBPS(SelectionMethod):
     def get_ratio_per_epoch(self, epoch):
         if epoch < self.warmup_epochs:
             self.logger.info('warming up')
-            self.warming_up = True
-            return 0.1
-        self.warming_up = False
+            return 1.0
         if self.ratio_scheduler == 'constant':
             return self.ratio
         elif self.ratio_scheduler == 'increase_linear':

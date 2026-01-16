@@ -10,5 +10,8 @@ from .RhoLossBPS import RhoLossBPS
 from .RhoLossWarmup import RhoLossWarmup
 from .GradNorm import GradNorm
 from .GradNormIS import GradNormIS
+from .RhoLossBPS import RhoLossBPS
+from .RhoLossIS import RhoLossIS
+from .RhoLossWarmup import RhoLossWarmup
 
 __all__ = ["Uniform", "DivBS", "Full", "Bayesian", "RhoLoss", "TrainLoss", "GradNorm", "GradNormIS", "RhoLossRW", "RhoLossIS","RhoLossBPS", "RhoLossWarmup"]
