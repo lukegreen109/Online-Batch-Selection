@@ -104,8 +104,8 @@ class SelectionMethod(object):
         else:
             self.noise = False
             self.noisy_indices = np.array([])
-        # If including holdout dataset for rholoss holdout model and/or comparison to rholoss
 
+        # If including holdout dataset for rholoss holdout model and/or comparison to rholoss
         if config['dataset']['holdout_percentage'] > 0:
                         
             self.holdout_percentage = config['dataset']['holdout_percentage']
@@ -125,7 +125,6 @@ class SelectionMethod(object):
    
 
         self.criterion = create_criterion(config, logger)
-
         self.need_features = False
                 
 
@@ -208,6 +207,9 @@ class SelectionMethod(object):
         total_batch = len(train_loader)
         epoch_begin_time = time.time()
         self.num_selected_noisy_indexes = 0
+        epoch_loss = 0.0
+        num_samples = 0
+        epoch_train_acc = 0.0
         # train
         for i, datas in enumerate(train_loader):
             inputs = datas['input'].cuda()
@@ -221,26 +223,33 @@ class SelectionMethod(object):
             loss.backward()
             self.optimizer.step()
             self.after_batch(i,inputs, targets, indexes,outputs.detach())
+
+            # record statistics for logging
+            batch_size = targets.size(0)
+            num_samples += batch_size
+            epoch_loss += loss.item() * batch_size
+            _, predicted = torch.max(outputs.data, 1)
+            correct = (predicted == targets).sum().item()
+            epoch_train_acc += correct
             self.num_selected_noisy_indexes = self.num_selected_noisy_indexes +  np.intersect1d(indexes, self.noisy_indices).size
-            if i % self.config['logger_opt']['print_iter'] == 0:
-                # train acc
-                _, predicted = torch.max(outputs.data, 1)
-                total = targets.size(0)
-                correct = (predicted == targets).sum().item()
-                train_acc = correct / total
-                self.logger.info(f'Epoch: {epoch}/{self.training_opt["num_epochs"]}, Iter: {i}/{total_batch}, global_step: {self.total_step+i}, Loss: {loss.item():.4f}, Train acc: {train_acc:.4f}, lr: {self.optimizer.param_groups[0]["lr"]:.6f}')
-                    
+        
+        # Log epoch statistics
+        now = time.time()
         self.scheduler.step()
         self.total_step = self.total_step + total_batch
-        # test
-        now = time.time()
-        self.logger.wandb_log({'loss': loss.item(), 'epoch': epoch, 'lr': self.optimizer.param_groups[0]['lr'], self.training_opt['loss_type']: loss.item()})
+        avg_epoch_train_loss = epoch_loss / num_samples
+        avg_epoch_train_acc = epoch_train_acc / num_samples
         #self.num_selected_noisy_indexes += np.intersect1d(indexes.cpu().numpy(), self.noisy_indices.cpu().numpy()).size
-        val_acc, ema_val_acc = self.test()
-        
-        self.logger.wandb_log({'percent noisy points selected': self.num_selected_noisy_indexes / len(self.train_dset) , 'val_acc': val_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'total_time': now - self.run_begin_time, 'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'best_val_acc': max(self.best_acc, val_acc)})
+        self.logger.info(f'=====> Epoch: {epoch}/{self.training_opt["num_epochs"]}, global_step: {self.total_step+i}, lr: {self.optimizer.param_groups[0]["lr"]:.6f}, Train Loss: {avg_epoch_train_loss:.4f}, Train acc: {avg_epoch_train_acc:.4f}')
+
+        # test and log to wandb
+        val_acc, val_loss, ema_val_acc = self.test()
         self.logger.info(f'=====> Time: {now - self.run_begin_time:.4f} s, Time this epoch: {now - epoch_begin_time:.4f} s, Total step: {self.total_step}')
-            # save model
+        self.logger.wandb_log({'epoch': epoch, 'lr': self.optimizer.param_groups[0]['lr'], 'val_loss': val_loss, 'val_acc': val_acc, 'train_loss': avg_epoch_train_loss,
+                                'train_acc': avg_epoch_train_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'best_val_acc': max(self.best_acc, val_acc), 'total_time': now - self.run_begin_time,
+                                'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'percent noisy points selected': self.num_selected_noisy_indexes / len(self.train_dset)})
+
+        # save model
         self.logger.info('=====> Save model')
         is_best = False
         if val_acc > self.best_acc:
@@ -271,18 +280,25 @@ class SelectionMethod(object):
         all_preds = []
         all_ema_preds = []
         all_labels = []
+        epoch_loss = 0.0
+        num_samples = 0
         with torch.no_grad():
             for i, datas in enumerate(self.test_loader):
                 inputs = datas['input'].cuda()
                 targets = datas['target'].cuda()
                 outputs = model(inputs)
+                test_loss = self.criterion(outputs, targets)
                 ema_outputs = ema_model(inputs)
                 ema_preds = torch.argmax(ema_outputs, dim=1)
                 preds = torch.argmax(outputs, dim=1)
                 all_preds.append(preds.cpu().numpy())
                 all_ema_preds.append(ema_preds.cpu().numpy())
                 all_labels.append(targets.cpu().numpy())
-        all_preds = np.concatenate(all_preds)
+                batch_size = targets.size(0)
+                epoch_loss += test_loss.item() * batch_size
+                num_samples += batch_size
+        avg_epoch_test_loss = epoch_loss / num_samples 
+        all_preds =  np.concatenate(all_preds)
         all_ema_preds = np.concatenate(all_ema_preds)
         all_labels = np.concatenate(all_labels)
         acc = np.mean(all_preds == all_labels)
@@ -290,5 +306,5 @@ class SelectionMethod(object):
         self.logger.info(f'=====> Validation Accuracy: {acc:.4f}')
         self.logger.info(f'=====> EMA Validation Accuracy: {ema_acc:.4f}')
 
-        return acc, ema_acc
+        return acc, avg_epoch_test_loss,ema_acc
 

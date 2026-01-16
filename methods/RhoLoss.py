@@ -151,10 +151,6 @@ class RhoLoss(SelectionMethod):
                 batch_loss = loss.item()
                 epoch_loss += batch_loss
 
-                if (i + 1) % 50 == 0 or (i + 1) == total_batch:
-                    logger.info(f"[Holdout Model][Epoch {epoch+1}/{epochs}] "
-                                f"Batch {i+1}/{total_batch}, Batch Loss: {batch_loss:.4f}")
-
             avg_epoch_loss = epoch_loss / total_batch
             logger.info(f"[Holdout Model][Epoch {epoch+1}/{epochs}] "
                         f"Average Loss: {avg_epoch_loss:.4f}")
