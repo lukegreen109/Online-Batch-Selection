@@ -13,7 +13,7 @@ import wandb
 import matplotlib.pyplot as plt
 
 
-class RhoLoss_Warmup(SelectionMethod):
+class RhoLossWarmup(SelectionMethod):
     """A class for implementing the RhoLoss selection method with a warmup using the irreducible loss values, which selects samples based on reducible loss.
 
     This class inherits from `SelectionMethod` and uses an irreducible loss model (ILmodel) and a target model
@@ -29,7 +29,7 @@ class RhoLoss_Warmup(SelectionMethod):
                 - 'networks': Dictionary with key 'type' and 'params' containing 'm_type' and 'num_classes'.
         logger (logging.Logger): Logger instance for logging training and selection information.
     """
-    method_name = 'RhoLoss_Warmup'
+    method_name = 'RhoLossWarmup'
     def __init__(self, config, logger):
         super().__init__(config, logger)
         self.alpha = config['method_opt']['alpha']
@@ -331,7 +331,7 @@ class RhoLoss_Warmup(SelectionMethod):
             indices = self.reducible_loss_selection(inputs, targets, indexes, selected_num_samples, epoch)
         inputs = inputs[indices]
         targets = targets[indices]
-        # if not self.warming_up:
-        #     indices = indices.to(indexes.device)
+        if not self.warming_up:
+            indices = indices.to(indexes.device)
         indexes = indexes[indices]
         return inputs, targets, indexes

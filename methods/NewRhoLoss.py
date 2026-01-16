@@ -1,5 +1,4 @@
 from methods.SelectionMethod import SelectionMethod
-from methods.ReweightMethod import ReweightMethod
 from methods.method_utils.optimizer import *
 from methods.method_utils.loss import *
 import models
@@ -12,7 +11,7 @@ import torch.nn.functional as F
 import torch.serialization
 
 
-class RhoLossIS_unbiased(ReweightMethod):
+class NewRhoLoss(SelectionMethod):
     """A class for implementing the RhoLoss selection method, which selects samples based on reducible loss.
 
     This class inherits from `SelectionMethod` and uses an irreducible loss model (ILmodel) and a target model
@@ -22,20 +21,20 @@ class RhoLossIS_unbiased(ReweightMethod):
     Args:
         config (dict): Configuration dictionary containing method and dataset parameters.
             Expected keys include:
-                - 'method_opt': Dictionary with keys 'ratio', 'balance', 'ratio_scheduler', 'warmup_epochs'.
-                - 'rho_loss': Dictionary with keys for the irreducible holdout model.
-                - 'dataset': Dictionary with keys 'name' and 'root'.
-                - 'networks': Dictionary with key 'type' and 'params' containing 'm_type' and 'num_classes'.
+                - 'method_opt': Dictionary with keys 'ratio', 'budget', 'epochs', 'ratio_scheduler',
+                  'warmup_epochs', 'iter_selection', 'balance'.
+                - 'rho_loss': Dictionary with key 'training_budget'.
+                - 'dataset': Dictionary with keys 'name' and 'num_classes'.
+                - 'networks': Dictionary with key 'params' containing 'm_type'.
         logger (logging.Logger): Logger instance for logging training and selection information.
     """
-    method_name = 'RhoLossIS_unbiased'
+    method_name = 'NewRhoLoss'
     def __init__(self, config, logger):
         super().__init__(config, logger)
         self.balance = config['method_opt']['balance']
         self.ratio = config['method_opt']['ratio']
         self.ratio_scheduler = config['method_opt']['ratio_scheduler'] if 'ratio_scheduler' in config['method_opt'] else 'constant'
         self.warmup_epochs = config['method_opt']['warmup_epochs'] if 'warmup_epochs' in config['method_opt'] else 0
-        self.temperature = config['method_opt']['temperature'] if 'temperature' in config['method_opt'] else 0
         self.current_train_indices = np.arange(self.num_train_samples)
         self.reduce_dim = config['method_opt']['reduce_dim'] if 'reduce_dim' in config['method_opt'] else False
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -65,8 +64,7 @@ class RhoLossIS_unbiased(ReweightMethod):
 
 
     def setup_holdout_model(self, config, logger):
-        """"
-        Retrieve the holdout model for computing irreducible loss.
+        """"Retrieve the holdout model for computing irreducible loss.
         Args:
             config (dict): Configuration dictionary containing model parameters.
             logger (logging.Logger): Logger instance for logging information.
@@ -91,9 +89,12 @@ class RhoLossIS_unbiased(ReweightMethod):
     def train_holdout_model(self, config, logger):
         """
         Train the holdout model for estimating irreducible loss.
+
         Args:
             config (dict): Configuration settings for training.
             logger (Logger): Logging utility.
+            holdout_dataloader (DataLoader): DataLoader for holdout set.
+            holdout_epochs (int): Number of epochs to train the holdout model.
         """
         
         optimizer = create_optimizer(self.holdout_model, config)
@@ -170,7 +171,7 @@ class RhoLossIS_unbiased(ReweightMethod):
         if epoch < self.warmup_epochs:
             self.logger.info('warming up')
             self.warming_up = True
-            return 0.1
+            return 1.0
         self.warming_up = False
         if self.ratio_scheduler == 'constant':
             return self.ratio
@@ -193,14 +194,11 @@ class RhoLossIS_unbiased(ReweightMethod):
         else:
             raise NotImplementedError
 
-    def reducible_loss_selection(self, inputs, targets, indexes, selected_num_samples, epoch):
-        """
-        Select sub-batch with highest reducible loss.
+    def reducible_loss_selection(self, inputs, targets, indexes, selected_num_samples):
+        """Select sub-batch with highest reducible loss.
         Args:
             inputs (torch.Tensor): Input data for the current batch.
             targets (torch.Tensor): Corresponding target labels for the current batch.
-            indexes (torch.Tensor): Indices of the samples in the current batch.
-            selected_num_samples (int): Number of samples to select based on reducible loss.
         Returns:
             torch.Tensor: Indices of the selected samples.
         """
@@ -215,43 +213,23 @@ class RhoLossIS_unbiased(ReweightMethod):
         # Get irreducible loss from holdout model
         irreducible_loss = self.original_train_dset.irreducible_loss_cache[indexes].to(total_loss.device)
 
-        # Compute reducible loss
-        reducible_loss = total_loss - irreducible_loss
+        # Compute new reducible loss
+        reducible_loss = total_loss * torch.exp(-irreducible_loss)
 
-        # Method 1 - Create ranking of reducible losses and create softmax rankings with temperature
-        sorted_reducible_loss, ranking = torch.sort(reducible_loss, descending=True)
-        temperature = self.temperature
-        weights = F.softmax(temperature * sorted_reducible_loss, dim=0)
-        weights = torch.clamp(weights, min=1e-12)
+        # Select samples with highest reducible loss
+        _, indices = torch.topk(reducible_loss, selected_num_samples, largest=True, sorted=False)
         
-        indices = np.random.choice(ranking.cpu().numpy(), size=selected_num_samples, replace=False, p=weights.cpu().numpy())
         # Uniform selection during warmup
         if self.warming_up:
             self.logger.info('warming up')
-            indices = np.random.choice(len(inputs), size=(selected_num_samples)*self.ratio, replace=False)
-        
-        # Record average total, irreducible and reducible loss for logging
-        avg_batch_total_loss = total_loss.mean().item()
-        avg_batch_irreducible_loss = irreducible_loss.mean().item()
-        avg_batch_reducible_loss = reducible_loss.mean().item()
-        avg_selected_total_loss = total_loss[indices].mean().item()
-        avg_selected_irreducible_loss = irreducible_loss[indices].mean().item()
-        avg_selected_reducible_loss = reducible_loss[indices].mean().item()
-
-        self.logger.wandb_log({'Average Batch Total Loss': avg_batch_total_loss, 
-                    'Average Batch Irreducible Loss': avg_batch_irreducible_loss, 
-                    'Average Batch Reducible Loss': avg_batch_reducible_loss,
-                    'Average Selected Total Loss': avg_selected_total_loss, 
-                    'Average Selected Irreducible Loss': avg_selected_irreducible_loss, 
-                    'Average Selected Reducible Loss': avg_selected_reducible_loss}, commit=False)
+            indices = np.random.choice(len(inputs), size=(selected_num_samples), replace=False)
         
         # Return to train mode and return selected indices
         self.model.train()
-        return indices, weights
+        return indices
 
     def before_batch(self, i, inputs, targets, indexes, epoch):
-        """
-        Prepare the batch for training by selecting samples based on reducible loss.
+        """Prepare the batch for training by selecting samples based on reducible loss.
         Args:
             i (int): Current batch index.
             inputs (torch.Tensor): Input data for the current batch.
@@ -275,18 +253,10 @@ class RhoLossIS_unbiased(ReweightMethod):
 
         # Get indices based on reducible loss
         selected_num_samples = max(1, int(inputs.shape[0] * ratio))
-
-        # Uniform selection during warmup
-        if self.warming_up:
-            self.logger.info('warming up')
-            indices = np.random.choice(len(inputs), size=(selected_num_samples), replace=False)
-            weights = torch.ones_like(weights) / len(weights)
-        else:
-            indices, weights = self.reducible_loss_selection(inputs, targets, indexes, selected_num_samples, epoch)
-
-        weights = weights[indices]
+        indices = self.reducible_loss_selection(inputs, targets, indexes, selected_num_samples)
         inputs = inputs[indices]
         targets = targets[indices]
+        if not self.warming_up:
+            indices = indices.to(indexes.device)
         indexes = indexes[indices]
-
-        return weights, inputs, targets, indexes 
+        return inputs, targets, indexes

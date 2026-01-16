@@ -12,7 +12,7 @@ import torch.nn.functional as F
 import torch.serialization
 
 
-class RhoLossIS_biased(SelectionMethod):
+class RhoLossBPS(SelectionMethod):
     """A class for implementing the RhoLoss selection method, which selects samples based on reducible loss.
 
     This class inherits from `SelectionMethod` and uses an irreducible loss model (ILmodel) and a target model
@@ -28,7 +28,7 @@ class RhoLossIS_biased(SelectionMethod):
                 - 'networks': Dictionary with key 'type' and 'params' containing 'm_type' and 'num_classes'.
         logger (logging.Logger): Logger instance for logging training and selection information.
     """
-    method_name = 'RhoLossIS_biased'
+    method_name = 'RhoLossBPS'
     def __init__(self, config, logger):
         super().__init__(config, logger)
         self.balance = config['method_opt']['balance']

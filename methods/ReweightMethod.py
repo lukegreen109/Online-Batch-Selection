@@ -181,37 +181,44 @@ class ReweightMethod(object):
         train_loader = torch.utils.data.DataLoader(self.train_dset, num_workers=self.num_data_workers, pin_memory=True, batch_sampler=batch_sampler)
         total_batch = len(train_loader)
         epoch_begin_time = time.time()
+        epoch_loss = 0.0
+        num_samples = 0
         # train
+        epoch_train_acc = 0.0
         for i, datas in enumerate(train_loader):
             inputs = datas['input'].cuda()
             targets = datas['target'].cuda()
             indexes = datas['index']
             weights, inputs, targets, indexes = self.before_batch(i, inputs, targets, indexes, epoch)
-            outputs, features = self.model(x=inputs, need_features=self.need_features, targets=targets) if self.need_features else (self.model(x=inputs, need_features=False, targets=targets), None)
+            # outputs, features = self.model(x=inputs, need_features=self.need_features, targets=targets) if self.need_features else (self.model(x=inputs, need_features=False, targets=targets), None)
+            outputs = self.model(inputs)
             loss = self.criterion(outputs, targets)
             weighted_loss = (loss * weights).sum()
-            self.while_update(outputs, loss, targets, epoch, features, indexes, batch_idx=i, batch_size=self.batch_size)
+            # self.while_update(outputs, loss, targets, epoch, features, indexes, batch_idx=i, batch_size=self.batch_size)
             self.optimizer.zero_grad()
             weighted_loss.backward()
             # Extra gradient clipping can be added here to safeguard against exploding gradients
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             self.optimizer.step()
             self.after_batch(i,inputs, targets, indexes,outputs.detach())
+            # record statistics
+            batch_size = targets.size(0)
+            epoch_loss += loss.item() * batch_size
+            num_samples += batch_size
+            _, predicted = torch.max(outputs.data, 1)
+            correct = (predicted == targets).sum().item()
+            epoch_train_acc += correct
             if i % self.config['logger_opt']['print_iter'] == 0:
-                # train acc
-                _, predicted = torch.max(outputs.data, 1)
-                total = targets.size(0)
-                correct = (predicted == targets).sum().item()
-                train_acc = correct / total
-                self.logger.info(f'Epoch: {epoch}/{self.training_opt["num_epochs"]}, Iter: {i}/{total_batch}, global_step: {self.total_step+i}, Weighted_Loss: {weighted_loss.item():.4f}, Train acc: {train_acc:.4f}, lr: {self.optimizer.param_groups[0]["lr"]:.6f}')
-                    
+                self.logger.info(f'Epoch: {epoch}/{self.training_opt["num_epochs"]}, Iter: {i}/{total_batch}, global_step: {self.total_step+i}, Loss: {epoch_loss / num_samples}, Train acc: {epoch_train_acc / num_samples}, lr: {self.optimizer.param_groups[0]["lr"]:.6f}')          
+        avg_epoch_train_loss = epoch_loss / num_samples
+        avg_epoch_train_acc = epoch_train_acc / num_samples
         self.scheduler.step()
         self.total_step = self.total_step + total_batch
         # test
         now = time.time()
-        self.logger.wandb_log({'weighted_loss': weighted_loss.item(), 'epoch': epoch, 'lr': self.optimizer.param_groups[0]['lr']})
-        val_acc, ema_val_acc = self.test()
-        self.logger.wandb_log({'val_acc': val_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'total_time': now - self.run_begin_time, 'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'best_val_acc': max(self.best_acc, val_acc)})
+        self.logger.wandb_log({'train_loss': avg_epoch_train_loss, 'train_acc': avg_epoch_train_acc, 'epoch': epoch, 'lr': self.optimizer.param_groups[0]['lr'], self.training_opt['loss_type']: loss.item()}, commit=False)
+        val_acc, ema_val_acc, avg_epoch_test_loss = self.test()
+        self.logger.wandb_log({'val_loss': avg_epoch_test_loss, 'val_acc': val_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'total_time': now - self.run_begin_time, 'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'best_val_acc': max(self.best_acc, val_acc)})
         self.logger.info(f'=====> Time: {now - self.run_begin_time:.4f} s, Time this epoch: {now - epoch_begin_time:.4f} s, Total step: {self.total_step}')
             # save model
         self.logger.info('=====> Save model')
@@ -244,17 +251,24 @@ class ReweightMethod(object):
         all_preds = []
         all_ema_preds = []
         all_labels = []
+        epoch_loss = 0.0
+        num_samples = 0
         with torch.no_grad():
             for i, datas in enumerate(self.test_loader):
                 inputs = datas['input'].cuda()
                 targets = datas['target'].cuda()
                 outputs = model(inputs)
+                test_loss = self.criterion(outputs, targets)
                 ema_outputs = ema_model(inputs)
                 ema_preds = torch.argmax(ema_outputs, dim=1)
                 preds = torch.argmax(outputs, dim=1)
                 all_preds.append(preds.cpu().numpy())
                 all_ema_preds.append(ema_preds.cpu().numpy())
                 all_labels.append(targets.cpu().numpy())
+                batch_size = targets.size(0)
+                epoch_loss += test_loss.item() * batch_size
+                num_samples += batch_size
+        avg_epoch_test_loss = epoch_loss / num_samples
         all_preds = np.concatenate(all_preds)
         all_ema_preds = np.concatenate(all_ema_preds)
         all_labels = np.concatenate(all_labels)
@@ -263,5 +277,4 @@ class ReweightMethod(object):
         self.logger.info(f'=====> Validation Accuracy: {acc:.4f}')
         self.logger.info(f'=====> EMA Validation Accuracy: {ema_acc:.4f}')
 
-        return acc, ema_acc
-
+        return acc, ema_acc, avg_epoch_test_loss
