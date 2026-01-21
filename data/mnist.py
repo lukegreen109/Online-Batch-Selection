@@ -3,6 +3,14 @@ import torch
 import numpy as np
 import random
 
+mnist_classes = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+mnist_templates = [
+    'a black and white photo of the number {}.',
+    'a blurry photo of the number {}',
+    'a photo of a hand-written {}',
+    'a high contrast photo of the number {}'
+]
+
 class wrapped_dataset(torch.utils.data.Dataset):
     def __init__(self, dataset):
         self.dataset = dataset
@@ -63,6 +71,8 @@ def MNIST(config, logger):
         'train_dset_unaugmented': wrapped_dataset(dst_train_unaugmented),
         'test_loader': test_loader,
         'num_train_samples': len(dst_train),
+        'classes': mnist_classes,
+        'template': mnist_templates
     }
 
 def FashionMNIST(config, logger):

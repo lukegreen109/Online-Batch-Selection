@@ -9,8 +9,8 @@ method_opt:
   warmup_epochs: 0
 
 dataset:
-  name: CIFAR10
-  root: ./_CIFAR10
+  name: MNIST
+  root: ./_MNIST
   noise: False
   noise_percent: 0
   holdout_percentage: .50
@@ -21,8 +21,8 @@ networks:
   params: 
     m_type: 'small_linear'
     num_classes: 10
-    im_size: [32,32] # according to dataset
-    in_channels: 3 # according to dataset
+    im_size: [28,28] # according to dataset
+    in_channels: 1 # according to dataset
 
 ema_momentum: 0.99
 
