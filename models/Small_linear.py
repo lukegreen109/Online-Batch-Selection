@@ -4,11 +4,11 @@ import torch.nn.functional as F
 
 def create_model(m_type='small_linear', num_classes=10, im_size=[28,28], in_channels=1, pretrained=False):
     # Simple MNIST MLP; ignore pretrained
-    return small_cnn(num_classes=num_classes, input_size=im_size[0]*im_size[1]*in_channels)
+    return small_linear(num_classes=num_classes, input_size=im_size[0]*im_size[1]*in_channels)
 
-class small_cnn(nn.Module):
+class small_linear(nn.Module):
     def __init__(self, input_size=3072, hidden_size=128, num_classes=10):
-        super(small_cnn, self).__init__()
+        super(small_linear, self).__init__()
         # First layer (feature extractor)
         self.fc1 = nn.Linear(input_size, hidden_size)
         # Final classifier exposed as `fc` to match ResNet-style code
