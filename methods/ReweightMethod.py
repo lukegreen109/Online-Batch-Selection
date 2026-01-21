@@ -169,9 +169,7 @@ class ReweightMethod(object):
 
     def before_batch(self, i, inputs, targets, indexes, epoch):
         return torch.ones_like(targets).float().cuda() / len(targets), inputs, targets, indexes
-        return torch.ones_like(targets).float().cuda() / len(targets), inputs, targets, indexes
-    
-    def after_batch(self, i, inputs, targets, indexes, outputs):
+        
     def after_batch(self, i, inputs, targets, indexes, outputs):
         self.ema_net.update()
 
@@ -226,11 +224,16 @@ class ReweightMethod(object):
         self.total_step = self.total_step + total_batch
         # test
         now = time.time()
-        self.logger.wandb_log({'train_loss': avg_epoch_train_loss, 'train_acc': avg_epoch_train_acc, 'epoch': epoch, 'lr': self.optimizer.param_groups[0]['lr'], self.training_opt['loss_type']: loss.item()}, commit=False)
-        val_acc, ema_val_acc, avg_epoch_test_loss = self.test()
-        self.logger.wandb_log({'val_loss': avg_epoch_test_loss, 'val_acc': val_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'total_time': now - self.run_begin_time, 'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'best_val_acc': max(self.best_acc, val_acc)})
+        self.logger.info(f'=====> Epoch: {epoch}/{self.training_opt["num_epochs"]}, global_step: {self.total_step+i}, lr: {self.optimizer.param_groups[0]["lr"]:.6f}, Train Loss: {avg_epoch_train_loss:.4f}, Train acc: {avg_epoch_train_acc:.4f}')
+
+        # test and log to wandb
+        val_acc, val_loss, ema_val_acc = self.test()
         self.logger.info(f'=====> Time: {now - self.run_begin_time:.4f} s, Time this epoch: {now - epoch_begin_time:.4f} s, Total step: {self.total_step}')
-            # save model
+        self.logger.wandb_log({'epoch': epoch, 'lr': self.optimizer.param_groups[0]['lr'], 'val_loss': val_loss, 'val_acc': val_acc, 'train_loss': avg_epoch_train_loss,
+                                'train_acc': avg_epoch_train_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'best_val_acc': max(self.best_acc, val_acc), 'total_time': now - self.run_begin_time,
+                                'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'percent noisy points selected': self.num_selected_noisy_indexes / len(self.train_dset)})
+
+        # save model
         self.logger.info('=====> Save model')
         is_best = False
         if val_acc > self.best_acc:
