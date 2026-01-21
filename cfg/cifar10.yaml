@@ -1,27 +1,19 @@
 output_dir: null
-seed: 14
-num_gpus: 1
+seed: 12
 methods: 
-  - RhoLoss
-  - RhoLossIS
-  - RhoLossWarmup
-  - RhoLossBPS
   - Uniform
-
 method_opt:
   ratio: 0.1
   balance: False
   ratio_scheduler: constant
   warmup_epochs: 0
-  temperature: 1.5
-  alpha: [0, 0.5]
-  alpha_scheduler: custom
-  rho: 0
 
 dataset:
-  name: CIFAR10
-  root: ./_CIFAR
-  include_holdout: True
+  name: MNIST
+  root: ./_MNIST
+  noise: False
+  noise_percent: 0
+  holdout_percentage: .50
   # im_size: [32,32]
 
 networks:
@@ -29,14 +21,15 @@ networks:
   params: 
     m_type: 'resnet18'
     num_classes: 10
+    in_channels: 1 # according to dataset
 
 ema_momentum: 0.99
 
 training_opt:
-  num_epochs: 100
-  # num_steps: 1000000
+  num_epochs: 10 # specify epochs, num_steps, or both
+  # num_steps: 100000
   num_data_workers: 4
-  batch_size: 128
+  batch_size: 320
   test_batch_size: 512
   loss_type: CrossEntropy
   loss_params: {}
@@ -46,31 +39,28 @@ training_opt:
   optim_params: {lr: 0.001}
   scheduler: 'constant'
   scheduler_params: {endlr: 0.0001, gamma: 0.1, step_size: 35, milestones: [120, 160]}
-
 logger_opt:
   print_iter: 100
 
-# Specific method hyperparameters
 bayesian:
   adaptive_alpha: False
-  alpha: 0.3
-  tau: 12
+  alpha: 0.2
+  tau: 4
   prior_precision: 10
-  num_effective_data: 1000
+  num_effective_data: 200
   laplace_momentum: 0.99
   n_f_samples: 256
   clip_architecture: 'RN50'
 
 rholoss:
+  uniform_epochs: 1
   holdout_model_path: None
-  holdout_percentage: .50
-  holdout_num_epochs: 10
-  uniform_epochs: 0
-  holdout_num_steps: 1000000
-  holdout_batch_size: 320
+  holdout_num_epochs: 30 # specify epochs, num_steps, or both
+  # holdout_num_steps: 1000000
+  holdout_batch_size: 32
   holdout_optimizer: AdamW
   holdout_loss_params: {}
-  holdout_optim_params: {lr: 0.001, betas: [0.9, 0.999], momentum: 0.9, weight_decay: 0.01}
+  holdout_optim_params: {}
   holdout_loss_type: CrossEntropy
   networks:
     type: Small_cnn

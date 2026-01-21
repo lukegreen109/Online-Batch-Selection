@@ -73,11 +73,11 @@ class Bottleneck(nn.Module):
 
 
 class ResNet(nn.Module):
-    def __init__(self, block, num_blocks, num_classes=10):
+    def __init__(self, block, num_blocks, num_classes=10, in_channels=3):
         super(ResNet, self).__init__()
         self.in_planes = 64
 
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3,
+        self.conv1 = nn.Conv2d(in_channels, 64, kernel_size=3,
                                stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
@@ -137,38 +137,34 @@ class ResNet(nn.Module):
         return out, feat
 
 
-def ResNet18(num_classes):
-    return ResNet(BasicBlock, [2, 2, 2, 2], num_classes=num_classes)
+def ResNet18(num_classes, in_channels=3):
+    return ResNet(BasicBlock, [2, 2, 2, 2], num_classes=num_classes, in_channels=in_channels)
+
+def ResNet34(num_classes, in_channels=3):
+    return ResNet(BasicBlock, [3, 4, 6, 3], num_classes=num_classes, in_channels=in_channels)
+
+def ResNet50(num_classes, in_channels=3):
+    return ResNet(Bottleneck, [3, 4, 6, 3], num_classes=num_classes, in_channels=in_channels)
+
+def ResNet101(num_classes, in_channels=3):
+    return ResNet(Bottleneck, [3, 4, 23, 3], num_classes=num_classes, in_channels=in_channels)
+
+def ResNet152(num_classes, in_channels=3):
+    return ResNet(Bottleneck, [3, 8, 36, 3], num_classes=num_classes, in_channels=in_channels)
 
 
-def ResNet34(num_classes):
-    return ResNet(BasicBlock, [3, 4, 6, 3], num_classes=num_classes)
-
-
-def ResNet50(num_classes):
-    return ResNet(Bottleneck, [3, 4, 6, 3], num_classes=num_classes)
-
-
-def ResNet101(num_classes):
-    return ResNet(Bottleneck, [3, 4, 23, 3], num_classes=num_classes)
-
-
-def ResNet152(num_classes):
-    return ResNet(Bottleneck, [3, 8, 36, 3], num_classes=num_classes)
-
-
-def create_model(m_type='resnet101',num_classes=1000, pretrained = False):
+def create_model(m_type='resnet101',num_classes=1000, in_channels=3, pretrained = False):
     if not pretrained:
         if m_type == 'resnet18':
-            model = ResNet18(num_classes)
+            model = ResNet18(num_classes, in_channels)
         elif m_type == 'resnet34':
-            model = ResNet34(num_classes)
+            model = ResNet34(num_classes, in_channels)
         elif m_type == 'resnet50':
-            model = ResNet50(num_classes)
+            model = ResNet50(num_classes, in_channels)
         elif m_type == 'resnet101':
-            model = ResNet101(num_classes)
+            model = ResNet101(num_classes, in_channels)
         elif m_type == 'resnet152':
-            model = ResNet152(num_classes)
+            model = ResNet152(num_classes, in_channels)
         else:
             raise ValueError('Wrong Model Type')
     else:

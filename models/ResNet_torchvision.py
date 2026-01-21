@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 
-def create_model(m_type='resnet101',num_classes=1000, pretrained = False):
+def create_model(m_type='resnet101', num_classes=1000, in_channels=3, pretrained = False):
     # create various resnet models
     weights_map = {
         'resnet18': models.ResNet18_Weights.DEFAULT,
@@ -28,14 +28,14 @@ def create_model(m_type='resnet101',num_classes=1000, pretrained = False):
     else:
         raise ValueError('Wrong Model Type')
         
-    model = ResNet(model, num_classes)
+    model = ResNet(model, num_classes, in_channels=in_channels)
     return model
 
 class ResNet(nn.Module):
-    def __init__(self, model, num_classes):
+    def __init__(self, model, num_classes, in_channels=3):
         super(ResNet, self).__init__()
         self.conv1 = nn.Conv2d(
-            3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False
+            in_channels, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False
         )
         self.bn1 = model.bn1
         self.relu = model.relu
