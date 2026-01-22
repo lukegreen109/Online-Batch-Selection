@@ -71,9 +71,9 @@ class SelectionMethod(object):
         self.test_loader = self.data_info['test_loader']
         self.num_train_samples = self.data_info['num_train_samples']
 
-
+        # Create Noisy Labels in dataset
         if config['dataset']['noise'] == True:
-            self.noise == True
+            self.noise = True
             all_dataset = self.train_dset
             all_dataset = all_dataset.dataset
             noise_percentage = config['dataset']["noise_percent"]
@@ -95,14 +95,23 @@ class SelectionMethod(object):
                     new_target = np.random.randint(self.num_classes)
                     targets[i] = new_target
             if(self.noise == True):
+                ## Reset seeds of random number generator
                 self.noisy_indices = noisy_indices
             # Check it works
             #print("Label distribution AFTER noise:")
             #print(Counter(all_dataset.targets))
-            
-            ## Reset seeds of random number generator
+            seed = config['seed']
+            os.environ['PYTHONHASHSEED'] = str(seed)
+            #random.seed(seed)
+            np.random.seed(seed)
+            torch.manual_seed(seed)
+            torch.cuda.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
         else:
             self.noise = False
+            # To avoid errors we set empty set to noisy indicies, for logging.
             self.noisy_indices = np.array([])
         # If including holdout dataset for rholoss holdout model
 
@@ -221,6 +230,7 @@ class SelectionMethod(object):
         total_batch = len(train_loader)
         epoch_begin_time = time.time()
         self.num_selected_noisy_indexes = 0
+        self.num_selected = 0
         # train
         for i, datas in enumerate(train_loader):
             inputs = datas['input'].cuda()
@@ -234,7 +244,8 @@ class SelectionMethod(object):
             loss.backward()
             self.optimizer.step()
             self.after_batch(i,inputs, targets, indexes,outputs.detach())
-            self.num_selected_noisy_indexes = self.num_selected_noisy_indexes +  np.intersect1d(indexes, self.noisy_indices).size
+            self.num_selected_noisy_indexes += int(len(np.intersect1d(indexes.cpu().numpy(), self.noisy_indices.cpu().numpy())))
+            self.num_selected += int(len(indexes))
             if i % self.config['logger_opt']['print_iter'] == 0:
                 # train acc
                 _, predicted = torch.max(outputs.data, 1)
@@ -251,7 +262,7 @@ class SelectionMethod(object):
         #self.num_selected_noisy_indexes += np.intersect1d(indexes.cpu().numpy(), self.noisy_indices.cpu().numpy()).size
         val_acc, ema_val_acc = self.test()
         
-        self.logger.wandb_log({'percent noisy points selected': self.num_selected_noisy_indexes / len(self.train_dset) , 'val_acc': val_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'total_time': now - self.run_begin_time, 'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'best_val_acc': max(self.best_acc, val_acc)})
+        self.logger.wandb_log({'percent noisy points selected': self.num_selected_noisy_indexes / int(len(self.train_dset)) , 'val_acc': val_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'total_time': now - self.run_begin_time, 'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'best_val_acc': max(self.best_acc, val_acc)})
         self.logger.info(f'=====> Time: {now - self.run_begin_time:.4f} s, Time this epoch: {now - epoch_begin_time:.4f} s, Total step: {self.total_step}')
             # save model
         self.logger.info('=====> Save model')

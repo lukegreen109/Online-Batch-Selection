@@ -9,8 +9,8 @@ class GradNormIS(SelectionMethod):
         self.selection_method = 'GradNormIS'
         self.prev_params = [p.data.clone() for p in self.model.parameters()]
         self.probs = None
-        self.tau = 1
-        self.a_tau = config["a_tau"]
+        self.tau = 1   # Predetermined threshold that is updated
+        self.a_tau = config["a_tau"] # Parameter that is "moving" similar to EMA momentum
         self.current_grad_norm = None
         self.current_selected_probs = None
         self.balance = config['method_opt']['balance']
@@ -109,7 +109,7 @@ class GradNormIS(SelectionMethod):
             self.tau = self.a_tau * self.tau + (1 - self.a_tau) * ((1 - (1 / (grad_norm ** 2).sum()) * torch.norm((grad_norm - uniform)) ** 2) ** -1/2)
             self.logger.wandb_log({"tau": self.tau, "tauth": tau_th})
             self.after_batch(i,inputs, targets, indexes,outputs.detach())
-            self.num_selected_noisy_indexes += np.intersect1d(indexes.cpu().numpy(), self.noisy_indices.cpu().numpy()).size
+            self.num_selected_noisy_indexes += int(len(np.intersect1d(indexes.cpu().numpy(), self.noisy_indices.cpu().numpy())))
             if i % self.config['logger_opt']['print_iter'] == 0:
                 # train acc
                 _, predicted = torch.max(outputs.data, 1)
@@ -124,7 +124,7 @@ class GradNormIS(SelectionMethod):
         now = time.time()
         self.logger.wandb_log({'loss': loss.item(), 'epoch': epoch, 'lr': self.optimizer.param_groups[0]['lr'], self.training_opt['loss_type']: loss.item()})
         val_acc, ema_val_acc = self.test()
-        self.logger.wandb_log({'percent noisy points selected': self.num_selected_noisy_indexes / total_batch, 'val_acc': val_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'total_time': now - self.run_begin_time, 'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'best_val_acc': max(self.best_acc, val_acc)})
+        self.logger.wandb_log({'percent noisy points selected': self.num_selected_noisy_indexes / int(len(self.train_dset)), 'val_acc': val_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'total_time': now - self.run_begin_time, 'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'best_val_acc': max(self.best_acc, val_acc)})
         self.logger.info(f'=====> Time: {now - self.run_begin_time:.4f} s, Time this epoch: {now - epoch_begin_time:.4f} s, Total step: {self.total_step}')
             # save model
         self.logger.info('=====> Save model')
