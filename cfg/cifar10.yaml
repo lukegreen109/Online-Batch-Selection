@@ -1,7 +1,7 @@
 output_dir: null
 seed: 12
 methods: 
-  - RhoLoss
+  - Full
 method_opt:
   ratio: 0.1
   balance: False
@@ -38,6 +38,8 @@ dataset:
   name: CIFAR10
   root: ./_CIFAR
   include_holdout: True
+  noise: True
+  noise_percent: .2
   # im_size: [32,32]
 
 networks:
@@ -47,7 +49,7 @@ networks:
     num_classes: 10
 
 ema_momentum: 0.99
-
+a_tau: .99
 training_opt:
   num_epochs: 50
   # num_steps: 1000000
@@ -62,4 +64,3 @@ training_opt:
   scheduler_params: {endlr: 0.0001, gamma: 0.1, step_size: 35, milestones: [120, 160]}
 logger_opt:
   print_iter: 100
-
