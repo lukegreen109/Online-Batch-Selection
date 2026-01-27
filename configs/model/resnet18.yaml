@@ -1,0 +1,4 @@
+networks:
+  type: ResNet
+  params: 
+    m_type: 'resnet18'

@@ -50,7 +50,7 @@ class SelectionMethod(object):
         # create EMA model
         self.ema_net = EMA(
             self.model,
-            beta=config["ema_momentum"],
+            beta=0.99,
             update_after_step=0,
             update_every=5,
         )
@@ -145,8 +145,8 @@ class SelectionMethod(object):
             self.logger.info(("=> no checkpoint found at '{}'".format(resume_path)))
 
     def save_checkpoint(self, state, is_best, filename='checkpoint.pth.tar'):
-        filename = os.path.join(self.config['output_dir'],filename)
-        best_filename = os.path.join(self.config['output_dir'],'model_best.pth.tar')
+        filename = os.path.join(self.config['save_dir'],filename)
+        best_filename = os.path.join(self.config['save_dir'],'model_best.pth.tar')
         torch.save(state, filename)
         self.logger.info(f'Save checkpoint to {filename}')
         if is_best:

@@ -132,7 +132,7 @@ class RhoLoss(SelectionMethod):
         logger.info(f"[Holdout Model] Starting training for {epochs} epochs on {total_batch} batches per epoch.")
 
         best_loss = float('inf')
-        best_model_path = os.path.join(self.config['output_dir'], f'best_holdout.pth.tar')
+        best_model_path = os.path.join(self.config['save_dir'], f'best_holdout.pth.tar')
 
         self.holdout_model.train()
         for epoch in range(epochs):

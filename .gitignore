@@ -8,12 +8,7 @@ __pycache__/
 *cifar-100-python/
 *cifar-10-batches-py/
 _CIFAR/
-
-# configs
-ablation1/
-ablation2/
-configs.py
-run_ablation.sh
+_MNIST/
 
 # _TINYIMAGENET/
 _CIFAR_N/

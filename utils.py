@@ -4,6 +4,14 @@ import secrets
 import os
 import csv
 import wandb
+import yaml
+
+def get_configs(fname):
+    with open(fname, 'r') as f:
+        configs = yaml.safe_load(f)
+        f.close()
+    return configs
+
 def random_str(num):
     salt = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(num))
 
