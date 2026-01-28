@@ -105,28 +105,10 @@ class SelectionMethod(object):
             self.noise = False
             self.noisy_indices = np.array([])
 
-        # If including holdout dataset for rholoss holdout model and/or comparison to rholoss
-        if config['dataset']['holdout_percentage'] > 0:
-                        
-            self.holdout_percentage = config['dataset']['holdout_percentage']
-
-            # get length of training set
-            train_len = int(self.num_train_samples * (1 - self.holdout_percentage))
-            
-            # selected random indices for training and holdout
-            permuted_indices = torch.randperm(self.num_train_samples, generator=torch.Generator().manual_seed(config['seed']))
-            self.train_indices = permuted_indices[:train_len]
-            self.holdout_indices = permuted_indices[train_len:]
-
-            # form new training dataset
-            self.original_train_dset = self.train_dset
-            self.train_dset = Subset(self.original_train_dset, self.train_indices)
-            self.num_train_samples = train_len
-   
-
         self.criterion = create_criterion(config, logger)
         self.need_features = False
-                
+
+        self.train_loader = DataLoader(self.train_dset, batch_size=self.batch_size, shuffle=True, num_workers=self.num_data_workers, pin_memory=True, drop_last=False)
 
         
     def resume(self, resume_path):
@@ -196,22 +178,14 @@ class SelectionMethod(object):
         self.model.train()
         self.logger.info('Epoch: [{} | {}] LR: {}'.format(epoch, self.epochs, self.optimizer.param_groups[0]['lr']))
 
-        # data loader
-        # sub_train_dset = torch.utils.data.Subset(self.train_dset, list_of_train_idx)
-        list_of_train_idx = np.random.permutation(list_of_train_idx)
-        batch_sampler = torch.utils.data.BatchSampler(list_of_train_idx, batch_size=self.batch_size,
-                                                      drop_last=False)
-        # list_of_train_idx = list(batch_sampler)
-
-        train_loader = torch.utils.data.DataLoader(self.train_dset, num_workers=self.num_data_workers, pin_memory=True, batch_sampler=batch_sampler)
-        total_batch = len(train_loader)
+        total_batch = len(self.train_loader)
         epoch_begin_time = time.time()
         self.num_selected_noisy_indexes = 0
         epoch_loss = 0.0
         num_samples = 0
         epoch_train_acc = 0.0
         # train
-        for i, datas in enumerate(train_loader):
+        for i, datas in enumerate(self.train_loader):
             inputs = datas['input'].cuda()
             targets = datas['target'].cuda()
             indexes = datas['index']

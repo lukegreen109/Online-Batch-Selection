@@ -6,6 +6,6 @@ method_opt:
   warmup_epochs: 0
   uniform_epochs: 1
 
-holdout_model_path: None
-holdout_architecture: smallcnn.yaml
-holdout_optimizer: /home/lgreen/projects/Online_BS/configs/optim/sgdn-30-0.0025-0.0.yaml
+teacher_model_path: None
+teacher_architecture: smallcnn.yaml
+teacher_optimizer: /home/lgreen/projects/Online_BS/configs/optim/sgdn-30-0.0025-0.0.yaml

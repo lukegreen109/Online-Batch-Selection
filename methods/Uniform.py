@@ -9,7 +9,6 @@ class Uniform(SelectionMethod):
         self.ratio = config['method_opt']['ratio']
         self.ratio_scheduler = config['method_opt']['ratio_scheduler'] if 'ratio_scheduler' in config['method_opt'] else 'constant'
         self.warmup_epochs = config['method_opt']['warmup_epochs'] if 'warmup_epochs' in config['method_opt'] else 0
-        self.current_train_indices = np.arange(self.num_train_samples)
     
     def get_ratio_per_epoch(self, epoch):
         if epoch < self.warmup_epochs:

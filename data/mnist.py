@@ -3,6 +3,47 @@ import torch
 import numpy as np
 import random
 
+mnist_classes = [
+    "zero",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+]
+
+mnist_templates = [
+    "a photo of the number {}.",
+    "a handwritten digit {}.",
+    "a grayscale image of the number {}.",
+    "a photo of a handwritten {}.",
+]
+
+fashionmnist_classes = [
+    "T-shirt",
+    "Trouser",
+    "Pullover",
+    "Dress",
+    "Coat",
+    "Sandal",
+    "Shirt",
+    "Sneaker",
+    "Bag",
+    "Ankle boot",
+]
+
+fashionmnist_templates = [
+    "a photo of a {}.",
+    "a grayscale photo of a {}.",
+    "a photo of a person wearing a {}.",
+    "a photo of a {} on a white background.",
+    "a photo of a {} item.",
+]
+
 class wrapped_dataset(torch.utils.data.Dataset):
     def __init__(self, dataset):
         self.dataset = dataset
@@ -63,6 +104,8 @@ def MNIST(config, logger):
         'train_dset_unaugmented': wrapped_dataset(dst_train_unaugmented),
         'test_loader': test_loader,
         'num_train_samples': len(dst_train),
+        "classes": mnist_classes,
+        "template": mnist_templates
     }
 
 def FashionMNIST(config, logger):
@@ -112,4 +155,6 @@ def FashionMNIST(config, logger):
         'train_dset_unaugmented': wrapped_dataset(dst_train_unaugmented),
         'test_loader': test_loader,
         'num_train_samples': len(dst_train),
+        "classes": fashionmnist_classes,
+        "template": fashionmnist_templates
     }

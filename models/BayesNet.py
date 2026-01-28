@@ -104,13 +104,13 @@ class KFCALLAWrapper(nn.Module):
         return out
 
 class CLIPZeroShotClassifier(nn.Module):
-    def __init__(self, classnames, template, dataset, arch) :
+    def __init__(self, classnames, template, dataset, arch, tau):
         super(CLIPZeroShotClassifier, self).__init__()
         clip_model, preprocess = clip.load(arch, jit=False)
         clip_model.eval()
         self.clip_model = clip_model
         clip_weights = clip_classifier(classnames, template, clip_model)
-        self.register_buffer('clip_weights', clip_weights)
+        self.register_buffer('clip_weights', clip_weights)            
 
         self.register_buffer('old_mean', torch.Tensor(mean_std.mean[dataset]))
         self.register_buffer('old_std', torch.Tensor(mean_std.std[dataset]))
@@ -118,16 +118,20 @@ class CLIPZeroShotClassifier(nn.Module):
         self.register_buffer('new_mean', torch.Tensor([0.48145466, 0.4578275, 0.40821073]))
         self.register_buffer('new_std', torch.Tensor([0.26862954, 0.26130258, 0.27577711]))
         self.input_size = preprocess.transforms[0].size
+        self.tau = tau
     
     @torch.no_grad()
-    def forward(self, inputs, tau=12.):
+    def forward(self, inputs):
         inputs = inputs.mul(self.old_std.view(-1, 1, 1)).add(self.old_mean.view(-1, 1, 1))
-        if inputs.shape[2] == 32:
+        if inputs.shape[1] == 1:
+            # Convert grayscale to RGB
+            inputs = inputs.repeat(1, 3, 1, 1)
+        if inputs.shape[2] != self.input_size:
             inputs = F.interpolate(inputs, self.input_size, mode='bicubic')
         inputs = inputs.sub(self.new_mean.view(-1, 1, 1)).div(self.new_std.view(-1, 1, 1))
 
         input_features = self.clip_model.encode_image(inputs)
-        clip_logits = tau * input_features @ self.clip_weights
+        clip_logits = self.tau * input_features @ self.clip_weights
         return clip_logits
     
 

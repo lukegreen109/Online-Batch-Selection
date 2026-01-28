@@ -3,7 +3,6 @@ dataset:
   root: ./_CIFAR
   noise: False
   noise_percent: 0
-  holdout_percentage: .50
   num_classes: 100
   im_size: [32,32]
   in_channels: 3

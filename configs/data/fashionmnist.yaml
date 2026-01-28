@@ -3,7 +3,6 @@ dataset:
   root: ./_MNIST
   noise: False
   noise_percent: 0
-  holdout_percentage: .50
   num_classes: 10
   im_size: [28,28]
   in_channels: 1
