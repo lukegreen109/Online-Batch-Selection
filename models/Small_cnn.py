@@ -17,9 +17,10 @@ class small_cnn(nn.Module):
         self.conv2_drop = nn.Dropout2d(p=dropout)
         self.conv3 = nn.Conv2d(128, 256, 3)
         self.conv3_drop = nn.Dropout2d(p=dropout)
-        self.fc1 = nn.Linear(64 * 4 * 4, 128)
-        # use for mnist
-        # self.fc1 = nn.Linear(256 * 1 * 1, 128)
+        if in_channels == 1: # use for mnist
+            self.fc1 = nn.Linear(256 * 1 * 1, 128)
+        else:
+            self.fc1 = nn.Linear(64 * 4 * 4, 128)
         self.fc1_drop = nn.Dropout(dropout)
         self.fc2 = nn.Linear(128, 256)
         self.fc2_drop = nn.Dropout(dropout)
@@ -35,7 +36,6 @@ class small_cnn(nn.Module):
         x = F.relu(self.pool(self.conv2_drop(self.conv2(x))))
         x = F.relu(self.pool(self.conv3_drop(self.conv3(x))))
 
-        #x = x.view(-1, 64 * 4 * 4)
         x = torch.flatten(x, start_dim=1)
 
         x = F.relu(self.fc1_drop(self.fc1(x)))

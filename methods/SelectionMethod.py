@@ -22,6 +22,8 @@ class SelectionMethod(object):
         # create model
         model_type = config['networks']['type']
         model_args = config['networks']['params']
+        model_args['in_channels'] = config['dataset']['in_channels']
+        model_args['num_classes'] = config['dataset']['num_classes']
         self.training_opt = config['training_opt']
         self.model = getattr(models, model_type)(**model_args)
         self.start_epoch = 0
