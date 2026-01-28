@@ -251,9 +251,10 @@ class RhoLossBPS(SelectionMethod):
         
         indices = np.random.choice(ranking.cpu().numpy(), size=selected_num_samples, replace=False, p=weights.cpu().numpy())
         # Uniform selection during warmup
-        if self.warming_up:
-            self.logger.info('warming up')
-            indices = np.random.choice(len(inputs), size=(selected_num_samples)*self.ratio, replace=False)
+        # Override with uniform selection if specified
+        if epoch < self.uniform_epochs:
+            self.logger.info('Uniform selection')
+            indices = torch.randperm(len(inputs))[:selected_num_samples]
         
         # Record average total, irreducible and reducible loss for logging
         avg_batch_total_loss = total_loss.mean().item()

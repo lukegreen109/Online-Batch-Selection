@@ -40,6 +40,8 @@ class RhoLossWarmup(SelectionMethod):
         self.current_train_indices = np.arange(self.num_train_samples)
         self.reduce_dim = config['method_opt']['reduce_dim'] if 'reduce_dim' in config['method_opt'] else False
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.total_epochs = config['training_opt']['num_epochs'] if 'num_epochs' in config['training_opt'] else config['training_opt']['num_steps']
+        self.alpha_scheduler = config['rholoss']['alpha_scheduler'] if 'alpha_scheduler' in config['rholoss'] else 'decrease_linear'
         
         self.setup_data(config)
 
@@ -217,6 +219,21 @@ class RhoLossWarmup(SelectionMethod):
             return max_ratio - (max_ratio - min_ratio) * np.exp(epoch / self.epochs)
         else:
             raise NotImplementedError
+        
+    def get_alpha_per_epoch(self, epoch):
+        if self.alpha_scheduler == "constant":
+            return self.alpha
+        elif self.alpha_scheduler == "decrease_linear":
+            min_alpha = self.alpha[0]
+            max_alpha = self.alpha[1]
+            return max_alpha - (max_alpha - min_alpha) * epoch / self.epochs
+        elif self.alpha_scheduler == "decrease_exp":
+            min_alpha = self.alpha[0]
+            max_alpha = self.alpha[1]
+            return max_alpha - (max_alpha - min_alpha) * np.exp(epoch / self.epochs)
+        else:
+            raise NotImplementedError
+
 
     def reducible_loss_selection(self, inputs, targets, indexes, selected_num_samples, epoch):
             """
