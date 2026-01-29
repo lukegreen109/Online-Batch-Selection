@@ -177,52 +177,59 @@ class SelectionMethod(object):
 
     def train(self, epoch, list_of_train_idx):
         # train for one epoch
-        self.model.train()
         self.logger.info('Epoch: [{} | {}] LR: {}'.format(epoch, self.epochs, self.optimizer.param_groups[0]['lr']))
 
         total_batch = len(self.train_loader)
         epoch_begin_time = time.time()
         self.num_selected_noisy_indexes = 0
+        all_preds = []
+        all_labels = []
         epoch_loss = 0.0
         num_samples = 0
-        epoch_train_acc = 0.0
+        
         # train
         for i, datas in enumerate(self.train_loader):
-            inputs = datas['input'].cuda()
-            targets = datas['target'].cuda()
-            indexes = datas['index']
-            inputs, targets, indexes = self.before_batch(i, inputs, targets, indexes, epoch)
-            outputs, features = self.model(x=inputs, need_features=self.need_features, targets=targets) if self.need_features else (self.model(x=inputs, need_features=False, targets=targets), None)
-            loss = self.criterion(outputs, targets)
-            self.while_update(outputs, loss, targets, epoch, features, indexes, batch_idx=i, batch_size=self.batch_size)
+            self.model.train()
+            batch_inputs = datas['input'].cuda()
+            batch_targets = datas['target'].cuda()
+            batch_indexes = datas['index']
+            selected_inputs, selected_targets, selected_indexes = self.before_batch(i, batch_inputs, batch_targets, batch_indexes, epoch)
+            selected_outputs, features = self.model(x=selected_inputs, need_features=self.need_features, targets=selected_targets) if self.need_features else (self.model(x=selected_inputs, need_features=False, targets=selected_targets), None)
+            loss = self.criterion(selected_outputs, selected_targets)
+            self.while_update(selected_outputs, loss, selected_targets, epoch, features, selected_indexes, batch_idx=i, batch_size=self.batch_size)
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-            self.after_batch(i,inputs, targets, indexes,outputs.detach())
-
-            # record statistics for logging
-            batch_size = targets.size(0)
+            self.after_batch(i,selected_inputs, selected_targets, selected_indexes, selected_outputs.detach())
+            
+            # record epoch statistics
+            self.model.eval()
+            self.num_selected_noisy_indexes = self.num_selected_noisy_indexes + np.intersect1d(selected_indexes, self.noisy_indices).size
+            batch_outputs = self.model(x=batch_inputs, targets=batch_targets)
+            train_loss = self.criterion(batch_outputs, batch_targets)
+            preds = torch.argmax(batch_outputs, dim=1)
+            all_preds.append(preds.cpu().numpy())
+            all_labels.append(batch_targets.cpu().numpy())
+            batch_size = batch_targets.size(0)
+            epoch_loss += train_loss.item() * batch_size
             num_samples += batch_size
-            epoch_loss += loss.item() * batch_size
-            _, predicted = torch.max(outputs.data, 1)
-            correct = (predicted == targets).sum().item()
-            epoch_train_acc += correct
-            self.num_selected_noisy_indexes = self.num_selected_noisy_indexes +  np.intersect1d(indexes, self.noisy_indices).size
         
         # Log epoch statistics
         now = time.time()
         self.scheduler.step()
         self.total_step = self.total_step + total_batch
-        avg_epoch_train_loss = epoch_loss / num_samples
-        avg_epoch_train_acc = epoch_train_acc / num_samples
-        #self.num_selected_noisy_indexes += np.intersect1d(indexes.cpu().numpy(), self.noisy_indices.cpu().numpy()).size
-        self.logger.info(f'=====> Epoch: {epoch}/{self.training_opt["num_epochs"]}, global_step: {self.total_step+i}, lr: {self.optimizer.param_groups[0]["lr"]:.6f}, Train Loss: {avg_epoch_train_loss:.4f}, Train acc: {avg_epoch_train_acc:.4f}')
-
-        # test and log to wandb
-        val_acc, val_loss, ema_val_acc = self.test()
+        train_loss = epoch_loss / num_samples
+        all_preds = np.concatenate(all_preds)
+        all_labels = np.concatenate(all_labels)
+        train_acc = np.mean(all_preds == all_labels)
+        self.logger.info(f'=====> Epoch: {epoch}/{self.training_opt["num_epochs"]}, global_step: {self.total_step+i}, lr: {self.optimizer.param_groups[0]["lr"]:.6f}, Train Loss: {train_loss:.4f}, Train acc: {train_acc:.4f}')
         self.logger.info(f'=====> Time: {now - self.run_begin_time:.4f} s, Time this epoch: {now - epoch_begin_time:.4f} s, Total step: {self.total_step}')
-        self.logger.wandb_log({'epoch': epoch, 'lr': self.optimizer.param_groups[0]['lr'], 'val_loss': val_loss, 'val_acc': val_acc, 'train_loss': avg_epoch_train_loss,
-                                'train_acc': avg_epoch_train_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'best_val_acc': max(self.best_acc, val_acc), 'total_time': now - self.run_begin_time,
+
+        # test on validation data and log statistics for WandB
+        val_acc, val_loss, ema_val_acc = self.test_val()
+        # self.num_selected_noisy_indexes += np.intersect1d(indexes.cpu().numpy(), self.noisy_indices.cpu().numpy()).size
+        self.logger.wandb_log({'epoch': epoch, 'lr': self.optimizer.param_groups[0]['lr'], 'val_loss': val_loss, 'val_acc': val_acc, 'train_loss': train_loss,
+                                'train_acc': train_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'best_val_acc': max(self.best_acc, val_acc), 'total_time': now - self.run_begin_time,
                                 'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'percent noisy points selected': self.num_selected_noisy_indexes / len(self.train_dset)})
 
         # save model
@@ -247,7 +254,33 @@ class SelectionMethod(object):
     def while_update(self, outputs, loss, targets, epoch, features, indexes, batch_idx, batch_size):
         pass
 
-    def test(self):
+    def test_train(self):
+        model = self.model.module if hasattr(self.model, 'module') else self.model
+        model.eval()
+        all_preds = []
+        all_labels = []
+        epoch_loss = 0.0
+        num_samples = 0
+        with torch.no_grad():
+            for i, datas in enumerate(self.train_loader):
+                inputs = datas['input'].cuda()
+                targets = datas['target'].cuda()
+                outputs = model(inputs)
+                train_loss = self.criterion(outputs, targets)
+                preds = torch.argmax(outputs, dim=1)
+                all_preds.append(preds.cpu().numpy())
+                all_labels.append(targets.cpu().numpy())
+                batch_size = targets.size(0)
+                epoch_loss += train_loss.item() * batch_size
+                num_samples += batch_size
+        avg_train_loss = epoch_loss / num_samples
+        all_preds = np.concatenate(all_preds)
+        all_labels = np.concatenate(all_labels)
+        train_acc = np.mean(all_preds == all_labels)
+        self.logger.info(f'=====> Training Accuracy: {train_acc:.4f}')
+        return train_acc, avg_train_loss
+
+    def test_val(self):
         # customize to use ema model for testing
         self.logger.info('=====> Start Validation')
         model = self.model.module if hasattr(self.model, 'module') else self.model
