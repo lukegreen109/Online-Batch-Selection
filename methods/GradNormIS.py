@@ -54,6 +54,7 @@ class GradNormIS(SelectionMethod):
         total_batch = len(train_loader)
         epoch_begin_time = time.time()
         self.num_selected_noisy_indexes = 0
+        self.num_selected = 0
         # train
         for i, datas in enumerate(train_loader):
             inputs = datas['input'].cuda()
@@ -110,6 +111,7 @@ class GradNormIS(SelectionMethod):
             self.logger.wandb_log({"tau": self.tau, "tauth": tau_th})
             self.after_batch(i,inputs, targets, indexes,outputs.detach())
             self.num_selected_noisy_indexes += int(len(np.intersect1d(indexes.cpu().numpy(), self.noisy_indices.cpu().numpy())))
+            self.num_selected += int(len(indexes))
             if i % self.config['logger_opt']['print_iter'] == 0:
                 # train acc
                 _, predicted = torch.max(outputs.data, 1)
@@ -124,7 +126,7 @@ class GradNormIS(SelectionMethod):
         now = time.time()
         self.logger.wandb_log({'loss': loss.item(), 'epoch': epoch, 'lr': self.optimizer.param_groups[0]['lr'], self.training_opt['loss_type']: loss.item()})
         val_acc, ema_val_acc = self.test()
-        self.logger.wandb_log({'percent noisy points selected': self.num_selected_noisy_indexes / int(len(self.train_dset)), 'val_acc': val_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'total_time': now - self.run_begin_time, 'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'best_val_acc': max(self.best_acc, val_acc)})
+        self.logger.wandb_log({'percent selected in batch': (self.num_selected_noisy_indexes / self.num_selected), 'percent noisy points selected': self.num_selected_noisy_indexes / int(len(self.train_dset)), 'val_acc': val_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'total_time': now - self.run_begin_time, 'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'best_val_acc': max(self.best_acc, val_acc)})
         self.logger.info(f'=====> Time: {now - self.run_begin_time:.4f} s, Time this epoch: {now - epoch_begin_time:.4f} s, Total step: {self.total_step}')
             # save model
         self.logger.info('=====> Save model')
@@ -232,10 +234,10 @@ class GradNormIS(SelectionMethod):
             return np.arange(n, dtype=np.int64)
         idx = np.random.choice(n, size=batch_size, replace=False, p=importance_scores)
         selected_probs = importance_scores[idx]
-        min_p = selected_probs.min()
-        mean_p = selected_probs.mean()
-        max_p = selected_probs.max()
-        self.logger.wandb_log({"Min Prob Selected": min_p, "Mean Prob Selected": mean_p, "Max Prob Selected": max_p, "Epoch": epoch})
+        # min_p = selected_probs.min()
+        # mean_p = selected_probs.mean()
+        # max_p = selected_probs.max()
+        #self.logger.wandb_log({"Min Prob Selected": min_p, "Mean Prob Selected": mean_p, "Max Prob Selected": max_p, "Epoch": epoch})
 
         # Find when low prob are chosen.
         return idx

@@ -1,7 +1,11 @@
 output_dir: null
 seed: 12
 methods: 
+  - Bayesian
   - GradNormIS
+  - Uniform
+  - DivBS
+  - GradNorm
 method_opt:
   ratio: 0.1
   balance: False
@@ -35,8 +39,8 @@ rholoss:
       num_classes: 10
 
 dataset:
-  name: CIFAR100
-  root: ./_CIFAR
+  name: MNIST
+  root: ./_MNIST
   include_holdout: True
   # im_size: [32,32]
 
@@ -49,7 +53,7 @@ networks:
 ema_momentum: 0.99
 
 training_opt:
-  num_epochs: 50
+  num_epochs: 15
   # num_steps: 1000000
   num_data_workers: 4
   batch_size: 320

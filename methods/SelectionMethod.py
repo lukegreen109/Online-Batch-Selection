@@ -262,7 +262,7 @@ class SelectionMethod(object):
         #self.num_selected_noisy_indexes += np.intersect1d(indexes.cpu().numpy(), self.noisy_indices.cpu().numpy()).size
         val_acc, ema_val_acc = self.test()
         
-        self.logger.wandb_log({'percent noisy points selected': self.num_selected_noisy_indexes / int(len(self.train_dset)) , 'val_acc': val_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'total_time': now - self.run_begin_time, 'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'best_val_acc': max(self.best_acc, val_acc)})
+        self.logger.wandb_log({'percent selected in batch': (self.num_selected_noisy_indexes / self.num_selected) ,'percent noisy points selected': self.num_selected_noisy_indexes / int(len(self.train_dset)) , 'val_acc': val_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'total_time': now - self.run_begin_time, 'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'best_val_acc': max(self.best_acc, val_acc)})
         self.logger.info(f'=====> Time: {now - self.run_begin_time:.4f} s, Time this epoch: {now - epoch_begin_time:.4f} s, Total step: {self.total_step}')
             # save model
         self.logger.info('=====> Save model')

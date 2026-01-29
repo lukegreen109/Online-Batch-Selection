@@ -359,7 +359,7 @@ def CIFAR100(config, logger):
         transforms.ToTensor(),
         transforms.Normalize(mean=mean, std=std)]
         )
-    
+
     test_transform =  transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=mean, std=std)]) if im_size[0] == 32 else transforms.Compose(
         [transforms.Resize(im_size),
         transforms.ToTensor(),
@@ -370,8 +370,11 @@ def CIFAR100(config, logger):
         config['dataset']['root'], train=True, download=True, transform= transform
     )
     
+    dst_train_unaugmented = datasets.CIFAR100(
+        config['dataset']['root'], train=True, download=True, transform= test_transform)
+
     dst_test = datasets.CIFAR100(config['dataset']['root'], train=False, download=True, transform = test_transform)
-    # class_names = dst_train.classes
+    class_names = dst_train.classes
     dst_train.targets = torch.tensor(dst_train.targets, dtype=torch.long)
     dst_test.targets = torch.tensor(dst_test.targets, dtype=torch.long)
     config['training_opt']['test_batch_size'] = config['training_opt']['batch_size'] if 'test_batch_size' not in config['training_opt'] else config['training_opt']['test_batch_size']
@@ -383,6 +386,7 @@ def CIFAR100(config, logger):
     return {
         'num_classes': num_classes,
         'train_dset': wrapped_dataset(dst_train),
+        'train_dset_unaugmented': wrapped_dataset(dst_train_unaugmented),
         'test_loader': test_loader,
         'num_train_samples': len(dst_train),
         "classes": cifar100_classes,
@@ -413,12 +417,12 @@ def CIFAR100_LT(config, logger):
         transforms.Normalize(mean=mean, std=std)]
         )
     
-    # dst_train = datasets.CIFAR100(
-    #     config['dataset']['root'], train=True, download=True, transform= transform
-    # )
+    dst_train = datasets.CIFAR100(
+        config['dataset']['root'], train=True, download=True, transform= transform
+     )
     dst_train = IMBALANCECIFAR100(root = config['dataset']['root'], imb_factor = config['dataset']['imb_factor'], rand_number = config['dataset']['rand_number'], train = True, download= True, transform= transform)
     dst_test = datasets.CIFAR100(config['dataset']['root'], train=False, download=True, transform = test_transform)
-    # class_names = dst_train.classes
+    class_names = dst_train.classes
     dst_train.targets = torch.tensor(dst_train.targets, dtype=torch.long)
     dst_test.targets = torch.tensor(dst_test.targets, dtype=torch.long)
     config['training_opt']['test_batch_size'] = config['training_opt']['batch_size'] if 'test_batch_size' not in config['training_opt'] else config['training_opt']['test_batch_size']
