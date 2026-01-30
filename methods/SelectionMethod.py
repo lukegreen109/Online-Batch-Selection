@@ -143,7 +143,13 @@ class SelectionMethod(object):
         self.run_begin_time = time.time()
         self.total_step = 0
         self.logger.info(f'Begin training for {self.method_name}...')
-        for epoch in range(self.start_epoch, self.epochs):
+        # Log first epoch before training to confirm same initialization
+        self.logger.info('Epoch: [{} | {}] LR: {}'.format(self.start_epoch, self.epochs, self.optimizer.param_groups[0]['lr']))
+        val_acc, val_loss, ema_val_acc = self.test_val()
+        self.logger.wandb_log({'epoch': self.start_epoch, 'lr': self.optimizer.param_groups[0]['lr'], 'val_loss': val_loss, 'val_acc': val_acc, 
+                                'ema_val_acc': ema_val_acc, 'best_val_acc': max(self.best_acc, val_acc),'total_step': self.total_step})
+
+        for epoch in range(self.start_epoch+1, self.epochs+1):
             list_of_train_idx = self.before_epoch(epoch)
             self.train(epoch, list_of_train_idx)
             self.after_epoch(epoch)
@@ -229,7 +235,7 @@ class SelectionMethod(object):
         val_acc, val_loss, ema_val_acc = self.test_val()
         # self.num_selected_noisy_indexes += np.intersect1d(indexes.cpu().numpy(), self.noisy_indices.cpu().numpy()).size
         self.logger.wandb_log({'epoch': epoch, 'lr': self.optimizer.param_groups[0]['lr'], 'val_loss': val_loss, 'val_acc': val_acc, 'train_loss': train_loss,
-                                'train_acc': train_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'best_val_acc': max(self.best_acc, val_acc), 'total_time': now - self.run_begin_time,
+                                'train_acc': train_acc, 'ema_val_acc': ema_val_acc, 'best_val_acc': max(self.best_acc, val_acc), 'total_time': now - self.run_begin_time,
                                 'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'percent noisy points selected': self.num_selected_noisy_indexes / len(self.train_dset)})
 
         # save model
