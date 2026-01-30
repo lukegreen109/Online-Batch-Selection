@@ -6,6 +6,9 @@ method_opt:
   warmup_epochs: 0
   uniform_epochs: 1
 
-teacher_model_path: None
-teacher_architecture: smallcnn.yaml
-teacher_optimizer: /home/lgreen/projects/Online_BS/configs/optim/sgdn-30-0.0025-0.0.yaml
+teacher_model_path: /home/phancock/Online-Batch-Selection/models/checkpoints/holdout_model_ckpts/holdout_model_25.pth
+teacher_optimizer: None
+teacher_networks: 
+  type: ResNet
+  params: 
+    m_type: 'resnet18'
