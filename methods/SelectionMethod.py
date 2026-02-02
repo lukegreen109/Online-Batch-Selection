@@ -208,7 +208,7 @@ class SelectionMethod(object):
     def while_update(self, outputs, loss, targets, epoch, features, indexes, batch_idx, batch_size):
         pass
 
-    def save_model(self, epoch, is_best):
+    def save_model(self, epoch):
         # save model
         self.logger.info('=====> Saving current model and best model')
         checkpoint = {
@@ -233,7 +233,7 @@ class SelectionMethod(object):
             self.best_acc = val_acc
             self.is_best = True
 
-        self.logger.info(f'=====> Epoch: {epoch}/{self.epochs}, Total_step: {self.total_step}, lr: {self.optimizer.param_groups[0]["lr"]:.6f}, Time: {self.total_time:.4f} s, Time this epoch: {self.time_this_epoch:.4f} s')
+        self.logger.info(f'=====> Epoch: {epoch}/{self.epochs}, Total_step: {self.total_step}, lr: {self.optimizer.param_groups[0]["lr"]:.6f}, Total Time: {self.total_time:.4f} s, Time this epoch: {self.time_this_epoch:.4f} s')
         self.logger.info(f'=====> Epoch: {epoch}/{self.epochs}, Train Loss: {train_loss:.4f}, Train acc: {train_acc:.4f}, Best val acc: {self.best_acc:.4f}, Current val acc: {val_acc:.4f}, EMA val acc: {ema_val_acc}')
 
         # Log to Weights and Biases

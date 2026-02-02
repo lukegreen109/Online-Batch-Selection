@@ -29,7 +29,6 @@ class small_cnn(nn.Module):
         self.pool = nn.MaxPool2d(2, 2)
 
     def forward(self, x, **kwargs):
-
         feature = kwargs.get('need_features', False)
 
         x = F.relu(self.pool(self.conv1_drop(self.conv1(x))))
@@ -47,3 +46,17 @@ class small_cnn(nn.Module):
             return x, feat
         else:
             return x
+        
+    def feat_nograd_forward(self, x):
+        with torch.no_grad():
+            x = F.relu(self.pool(self.conv1_drop(self.conv1(x))))
+            x = F.relu(self.pool(self.conv2_drop(self.conv2(x))))
+            x = F.relu(self.pool(self.conv3_drop(self.conv3(x))))
+
+            x = torch.flatten(x, start_dim=1)
+
+            x = F.relu(self.fc1_drop(self.fc1(x)))
+            x = F.relu(self.fc2_drop(self.fc2(x)))
+            feat = x
+        x = self.fc3(x)
+        return x, feat
