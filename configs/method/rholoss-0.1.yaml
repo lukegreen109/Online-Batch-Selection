@@ -6,9 +6,9 @@ method_opt:
   warmup_epochs: 0
   uniform_epochs: 1
 
-teacher_model_path: /home/phancock/Online-Batch-Selection/models/checkpoints/holdout_model_ckpts/holdout_model_25.pth
+teacher_model_path: /home/phancock/Online-Batch-Selection/exp/cifar10_bs40.yaml/RhoLoss/best_holdout.pth.tar
 teacher_optimizer: None
 teacher_networks: 
-  type: ResNet
+  type: Small_cnn
   params: 
-    m_type: 'resnet18'
+    m_type: 'small_cnn'
