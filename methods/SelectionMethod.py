@@ -73,7 +73,6 @@ class SelectionMethod(object):
         self.test_loader = self.data_info['test_loader']
         self.num_train_samples = self.data_info['num_train_samples']
 
-
         if config['dataset']['noise'] == True:
             self.noise == True
             all_dataset = self.train_dset
@@ -111,7 +110,6 @@ class SelectionMethod(object):
         self.need_features = False
 
         self.train_loader = DataLoader(self.train_dset, batch_size=self.batch_size, shuffle=True, num_workers=self.num_data_workers, pin_memory=True, drop_last=False)
-
         
     def resume(self, resume_path):
         if os.path.isfile(resume_path):
@@ -132,22 +130,18 @@ class SelectionMethod(object):
         filename = os.path.join(self.config['save_dir'],filename)
         best_filename = os.path.join(self.config['save_dir'],'model_best.pth.tar')
         torch.save(state, filename)
-        self.logger.info(f'Save checkpoint to {filename}')
+        # self.logger.info(f'Save checkpoint to {filename}')
         if is_best:
             shutil.copyfile(filename, best_filename)
-            self.logger.info(f'Save best checkpoint to {best_filename}')
-        
+            # self.logger.info(f'Save best checkpoint to {best_filename}')
 
     def run(self):
         self.before_run()
         self.run_begin_time = time.time()
-        self.total_step = 0
         self.logger.info(f'Begin training for {self.method_name}...')
+
         # Log first epoch before training to confirm same initialization
-        self.logger.info('Epoch: [{} | {}] LR: {}'.format(self.start_epoch, self.epochs, self.optimizer.param_groups[0]['lr']))
-        val_acc, val_loss, ema_val_acc = self.test_val()
-        self.logger.wandb_log({'epoch': self.start_epoch, 'lr': self.optimizer.param_groups[0]['lr'], 'val_loss': val_loss, 'val_acc': val_acc, 
-                                'ema_val_acc': ema_val_acc, 'best_val_acc': max(self.best_acc, val_acc),'total_step': self.total_step})
+        self.log_statistics(epoch = self.start_epoch)
 
         for epoch in range(self.start_epoch+1, self.epochs+1):
             list_of_train_idx = self.before_epoch(epoch)
@@ -160,15 +154,18 @@ class SelectionMethod(object):
         self.after_run()
 
     def before_run(self):
-        pass
-        
+        self.total_time = 0
+        self.time_this_epoch = 0
+        self.total_step = 0
 
-    def before_epoch(self,epoch):
+    def before_epoch(self, epoch):
         # select samples for this epoch
+        self.num_selected_noisy_indexes = 0
         return np.arange(self.num_train_samples)
 
     def after_epoch(self, epoch):
-        pass
+        self.log_statistics(epoch)
+        self.save_model(epoch)
 
     def after_run(self):
         pass
@@ -176,22 +173,16 @@ class SelectionMethod(object):
     def before_batch(self, i, inputs, targets, indexes, epoch):
         # online batch selection
         return inputs, targets, indexes
-    
+
     def after_batch(self, i, inputs, targets, indexes, outputs):
         self.ema_net.update()
-
+        # record noisy points selected
+        self.num_selected_noisy_indexes = self.num_selected_noisy_indexes + np.intersect1d(indexes, self.noisy_indices).size
 
     def train(self, epoch, list_of_train_idx):
-        # train for one epoch
-        self.logger.info('Epoch: [{} | {}] LR: {}'.format(epoch, self.epochs, self.optimizer.param_groups[0]['lr']))
-
+        # train for one epoch and record time taken
         total_batch = len(self.train_loader)
         epoch_begin_time = time.time()
-        self.num_selected_noisy_indexes = 0
-        all_preds = []
-        all_labels = []
-        epoch_loss = 0.0
-        num_samples = 0
         
         # train
         for i, datas in enumerate(self.train_loader):
@@ -206,45 +197,20 @@ class SelectionMethod(object):
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-            self.after_batch(i,selected_inputs, selected_targets, selected_indexes, selected_outputs.detach())
-            
-            # record epoch statistics
-            self.model.eval()
-            self.num_selected_noisy_indexes = self.num_selected_noisy_indexes + np.intersect1d(selected_indexes, self.noisy_indices).size
-            batch_outputs = self.model(x=batch_inputs, targets=batch_targets)
-            train_loss = self.criterion(batch_outputs, batch_targets)
-            preds = torch.argmax(batch_outputs, dim=1)
-            all_preds.append(preds.cpu().numpy())
-            all_labels.append(batch_targets.cpu().numpy())
-            batch_size = batch_targets.size(0)
-            epoch_loss += train_loss.item() * batch_size
-            num_samples += batch_size
+            self.after_batch(i, selected_inputs, selected_targets, selected_indexes, selected_outputs.detach())
         
-        # Log epoch statistics
         now = time.time()
-        self.scheduler.step()
+        self.time_this_epoch = now - epoch_begin_time
+        self.total_time = now - self.run_begin_time
         self.total_step = self.total_step + total_batch
-        train_loss = epoch_loss / num_samples
-        all_preds = np.concatenate(all_preds)
-        all_labels = np.concatenate(all_labels)
-        train_acc = np.mean(all_preds == all_labels)
-        self.logger.info(f'=====> Epoch: {epoch}/{self.training_opt["num_epochs"]}, global_step: {self.total_step+i}, lr: {self.optimizer.param_groups[0]["lr"]:.6f}, Train Loss: {train_loss:.4f}, Train acc: {train_acc:.4f}')
-        self.logger.info(f'=====> Time: {now - self.run_begin_time:.4f} s, Time this epoch: {now - epoch_begin_time:.4f} s, Total step: {self.total_step}')
+        self.scheduler.step()
 
-        # test on validation data and log statistics for WandB
-        val_acc, val_loss, ema_val_acc = self.test_val()
-        # self.num_selected_noisy_indexes += np.intersect1d(indexes.cpu().numpy(), self.noisy_indices.cpu().numpy()).size
-        self.logger.wandb_log({'epoch': epoch, 'lr': self.optimizer.param_groups[0]['lr'], 'val_loss': val_loss, 'val_acc': val_acc, 'train_loss': train_loss,
-                                'train_acc': train_acc, 'ema_val_acc': ema_val_acc, 'best_val_acc': max(self.best_acc, val_acc), 'total_time': now - self.run_begin_time,
-                                'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'percent noisy points selected': self.num_selected_noisy_indexes / len(self.train_dset)})
+    def while_update(self, outputs, loss, targets, epoch, features, indexes, batch_idx, batch_size):
+        pass
 
+    def save_model(self, epoch, is_best):
         # save model
-        self.logger.info('=====> Save model')
-        is_best = False
-        if val_acc > self.best_acc:
-            self.best_epoch = epoch
-            self.best_acc = val_acc
-            is_best = True
+        self.logger.info('=====> Saving current model and best model')
         checkpoint = {
                 'epoch': epoch,
                 'state_dict': self.model.module.state_dict() if hasattr(self.model, 'module') else self.model.state_dict(),
@@ -253,12 +219,27 @@ class SelectionMethod(object):
                 'best_acc': self.best_acc,
                 'best_epoch': self.best_epoch
             }
-        self.save_checkpoint(checkpoint, is_best)
-        self.logger.info(f'=====> Epoch: {epoch}/{self.epochs}, Best val acc: {self.best_acc:.4f}, Current val acc: {val_acc:.4f}')
-        self.logger.info(f'=====> Best epoch: {self.best_epoch}')
+        self.save_checkpoint(checkpoint, self.is_best)
 
-    def while_update(self, outputs, loss, targets, epoch, features, indexes, batch_idx, batch_size):
-        pass
+    def log_statistics(self, epoch):
+        # Log statistics
+        train_acc, train_loss = self.test_train()
+        val_acc, val_loss, ema_val_acc = self.test_val()
+
+        # Record if this is best model so far
+        self.is_best = False
+        if val_acc > self.best_acc:
+            self.best_epoch = epoch
+            self.best_acc = val_acc
+            self.is_best = True
+
+        self.logger.info(f'=====> Epoch: {epoch}/{self.epochs}, Total_step: {self.total_step}, lr: {self.optimizer.param_groups[0]["lr"]:.6f}, Time: {self.total_time:.4f} s, Time this epoch: {self.time_this_epoch:.4f} s')
+        self.logger.info(f'=====> Epoch: {epoch}/{self.epochs}, Train Loss: {train_loss:.4f}, Train acc: {train_acc:.4f}, Best val acc: {self.best_acc:.4f}, Current val acc: {val_acc:.4f}, EMA val acc: {ema_val_acc}')
+
+        # Log to Weights and Biases
+        self.logger.wandb_log({'epoch': epoch, 'lr': self.optimizer.param_groups[0]['lr'], 'val_loss': val_loss, 'val_acc': val_acc, 'train_loss': train_loss,
+                                'train_acc': train_acc, 'ema_val_acc': ema_val_acc, 'best_val_acc': max(self.best_acc, val_acc), 'total_time': self.total_time,
+                                'total_step': self.total_step, 'time_epoch': self.time_this_epoch, 'percent noisy points selected': self.num_selected_noisy_indexes / len(self.train_dset)})
 
     def test_train(self):
         model = self.model.module if hasattr(self.model, 'module') else self.model
@@ -283,12 +264,10 @@ class SelectionMethod(object):
         all_preds = np.concatenate(all_preds)
         all_labels = np.concatenate(all_labels)
         train_acc = np.mean(all_preds == all_labels)
-        self.logger.info(f'=====> Training Accuracy: {train_acc:.4f}')
         return train_acc, avg_train_loss
 
     def test_val(self):
         # customize to use ema model for testing
-        self.logger.info('=====> Start Validation')
         model = self.model.module if hasattr(self.model, 'module') else self.model
         ema_model = self.ema_net.ema_module if hasattr(self.ema_net, 'ema_module') else self.ema_net
         model.eval()
@@ -318,8 +297,5 @@ class SelectionMethod(object):
         all_labels = np.concatenate(all_labels)
         acc = np.mean(all_preds == all_labels)
         ema_acc = np.mean(all_ema_preds == all_labels)
-        self.logger.info(f'=====> Validation Accuracy: {acc:.4f}')
-        self.logger.info(f'=====> EMA Validation Accuracy: {ema_acc:.4f}')
-
         return acc, avg_epoch_test_loss,ema_acc
 
