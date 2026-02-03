@@ -2,15 +2,12 @@ from methods.SelectionMethod import SelectionMethod
 from methods.method_utils.optimizer import *
 from methods.method_utils.loss import *
 import models
-import data
 import torch
 import numpy as np
 import torch
-import os
 import torch.nn.functional as F
-import torch.serialization
-from torch.utils.data import DataLoader, Subset
 from transformers import AutoImageProcessor, AutoModelForImageClassification
+from models.BayesNet import CLIPZeroShotClassifier
 import timm
 
 
@@ -49,35 +46,47 @@ class RhoLoss(SelectionMethod):
         self.uniform_epochs = config['method_opt']['uniform_epochs'] if 'uniform_epochs' in config['method_opt'] else 0
 
     def setup_holdout_model(self, config, logger):
-        """Retrieve the holdout model for computing irreducible loss."""
+        """Retrieve the holdout model from config for computing irreducible loss."""
         teacher_model_path = config['teacher_model_path']
+        teacher_model_source = config['teacher_model_source']
 
-        if teacher_model_path is None:
-            raise ValueError("No path specified for teacher model.")
+        if teacher_model_source == "Clip":
+            self.clip_clf = CLIPZeroShotClassifier(
+                self.classes,
+                self.template,
+                config["dataset"]["name"],
+                config["clip"]["clip_architecture"],
+                tau = config["clip"]["tau"],
+            )
 
-        teacher_model_type = config['teacher_networks']['type']
-        teacher_model_args = dict(config['teacher_networks']['params'])
-        teacher_model_args['in_channels'] = config['dataset']['in_channels']
-        teacher_model_args['num_classes'] = config['dataset']['num_classes']
+        elif teacher_model_source == "timm":
+            # Load model directly
+            model = timm.create_model(teacher_model_path, pretrained=True)
+            self.teacher_model = model
 
-        try:
-            self.teacher_model = getattr(models, teacher_model_type)(**teacher_model_args)
-        except AttributeError:
-            raise ValueError(f"Unknown teacher model type: {teacher_model_type}")
+        elif teacher_model_source == "local_pretrained":
+            # Get specifications from method and data configs to create teacher model
+            teacher_model_type = config['local_pretrained']['type']
+            teacher_model_args = dict(config['local_pretrained']['params'])
+            teacher_model_args['in_channels'] = config['dataset']['in_channels']
+            teacher_model_args['num_classes'] = config['dataset']['num_classes']
 
-        self.teacher_model.to(self.device)
+            try:
+                self.teacher_model = getattr(models, teacher_model_type)(**teacher_model_args)
+            except AttributeError:
+                raise ValueError(f"Unknown teacher model type: {teacher_model_type}")
 
+            checkpoint = torch.load(teacher_model_path, map_location=self.device)
+            state_dict = checkpoint.get("state_dict", checkpoint)
+            state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
+            self.teacher_model.load_state_dict(state_dict)
+            self.teacher_model.eval()
+
+        else:
+            raise ValueError("Teacher model type {teacher_model_source} not supported.")
+        
         logger.info(f"Loading holdout model from {teacher_model_path}")
-
-        checkpoint = torch.load(teacher_model_path, map_location=self.device)
-        state_dict = checkpoint.get("state_dict", checkpoint)
-        state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
-        self.teacher_model.load_state_dict(state_dict)
-        self.teacher_model.eval()
-
-        # Load model directly
-        # model = timm.create_model("hf_hub:FredMell/resnet18-cifar10", pretrained=True)
-        # self.teacher_model = model.to(self.device)
+        self.teacher_model.to(self.device)
     
 
     def precompute_losses(self):
