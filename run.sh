@@ -9,10 +9,10 @@ WANDB_NOT_UPLOAD=$2
 CONFIG_DIR="configs"
 
 # Explicit config lists
-METHODS=("uniform-0.1.yaml" "divbs-0.1.yaml")
-MODELS=("resnet18.yaml" "smallcnn.yaml")
+METHODS=("rholoss-0.1.yaml")
+MODELS=("resnet18.yaml")
 OPTIM=("adam-320-0.001-0.0.yaml")
-DATA=("cifar10.yaml" "mnist.yaml")
+DATA=("cifar10.yaml")
 
 for data in "${DATA[@]}"; do
   for model in "${MODELS[@]}"; do

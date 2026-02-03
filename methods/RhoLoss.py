@@ -51,7 +51,7 @@ class RhoLoss(SelectionMethod):
         teacher_model_source = config['teacher_model_source']
 
         if teacher_model_source == "Clip":
-            self.clip_clf = CLIPZeroShotClassifier(
+            self.teacher_model = CLIPZeroShotClassifier(
                 self.classes,
                 self.template,
                 config["dataset"]["name"],
