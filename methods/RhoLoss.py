@@ -76,10 +76,7 @@ class RhoLoss(SelectionMethod):
             except AttributeError:
                 raise ValueError(f"Unknown teacher model type: {teacher_model_type}")
 
-            checkpoint = torch.load(teacher_model_path, map_location=self.device)
-            state_dict = checkpoint.get("state_dict", checkpoint)
-            state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
-            self.teacher_model.load_state_dict(state_dict)
+            self.teacher_model.load_state_dict(torch.load(teacher_model_path, map_location=self.device))
             self.teacher_model.eval()
 
         else:
