@@ -50,10 +50,10 @@ class RhoLoss(SelectionMethod):
         teacher_model_path = config['teacher_model_path']
         teacher_model_source = config['teacher_model_source']
 
-        if teacher_model_source == "Clip":
+        if teacher_model_source == "clip":
             self.teacher_model = CLIPZeroShotClassifier(
-                self.classes,
-                self.template,
+                self.data_info["classes"],
+                self.data_info["template"],
                 config["dataset"]["name"],
                 config["clip"]["clip_architecture"],
                 tau = config["clip"]["tau"],
@@ -75,7 +75,7 @@ class RhoLoss(SelectionMethod):
                 self.teacher_model = getattr(models, teacher_model_type)(**teacher_model_args)
             except AttributeError:
                 raise ValueError(f"Unknown teacher model type: {teacher_model_type}")
-
+            # Load teacher model weights from path
             self.teacher_model.load_state_dict(torch.load(teacher_model_path, map_location=self.device))
             self.teacher_model.eval()
 
@@ -98,7 +98,7 @@ class RhoLoss(SelectionMethod):
                 indexes = datas['index']
                 outputs = self.teacher_model(inputs)
                 loss = F.cross_entropy(outputs, targets, reduction='none')
-                losses_tensor[indexes] = loss.cpu()
+                losses_tensor[indexes] = loss.float().cpu()
 
         # Attach the losses tensor directly to the dataset object
         self.train_dset.irreducible_loss_cache = losses_tensor
