@@ -4,8 +4,18 @@ method_opt:
   balance: False
   ratio_scheduler: constant
   warmup_epochs: 0
-  uniform_epochs: 1
+  uniform_epochs: 0
 
-teacher_model_path: None
-teacher_architecture: smallcnn.yaml
-teacher_optimizer: /home/lgreen/projects/Online_BS/configs/optim/sgdn-30-0.0025-0.0.yaml
+teacher_model_source: clip # Supported options: "local_pretrained", "clip", "timm"
+teacher_model_path: /home/phancock/Online-Batch-Selection/exp/cifar10_small-cnn_30-epoch.tar
+
+# If local_pretrained is selected, specify the model architecture here
+local_pretrained:
+  type: Small_cnn
+  params: 
+    m_type: 'small_cnn'
+
+# If Clip is selected, specify the model architecture here
+clip:
+  clip_architecture: 'RN50'
+  tau: 4

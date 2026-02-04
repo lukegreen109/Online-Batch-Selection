@@ -145,7 +145,7 @@ def main():
         init_seeds(args.seed)
         # logger.info(f'=====> Random seed initialized to {config["seed"]}')
         logger.info(f'=====> Wandb initialized')
-        run = wandb.init(config=config,project="Reweighting")
+        run = wandb.init(config=config,project="Preston_Sandbox")
         re_nest_configs(run.config)
         wandb.define_metric('acc', 'max')
         run.name = method + '_' + config['save_dir'].split('/')[-2]

@@ -2,15 +2,13 @@ from methods.SelectionMethod import SelectionMethod
 from methods.method_utils.optimizer import *
 from methods.method_utils.loss import *
 import models
-import data
 import torch
 import numpy as np
 import torch
-import os
 import torch.nn.functional as F
-import torch.serialization
-from torch.utils.data import DataLoader, Subset
-
+from transformers import AutoImageProcessor, AutoModelForImageClassification
+from models.BayesNet import CLIPZeroShotClassifier
+import timm
 
 
 class RhoLoss(SelectionMethod):
@@ -41,154 +39,71 @@ class RhoLoss(SelectionMethod):
         self.reduce_dim = config['method_opt']['reduce_dim'] if 'reduce_dim' in config['method_opt'] else False
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
-        self.setup_data(config)
-
         self.setup_holdout_model(config, logger)
-        
         self.precompute_losses()
 
         # starting with uniform selection generally helps performance
-        self.uniform_epochs = config['rholoss']['uniform_epochs'] if 'uniform_epochs' in config['rholoss'] else 0
+        self.uniform_epochs = config['method_opt']['uniform_epochs'] if 'uniform_epochs' in config['method_opt'] else 0
 
-    def setup_data(self, config):
-        """
-        As implemented in RhoLoss, we need to create datasets and loaders for augmented and unaugmented data
-        for both the training set and the holdout set
-        """
-        train_dset_unaugmented = self.data_info['train_dset_unaugmented']
-            
-        self.holdout_batch_size = config['rholoss']['holdout_batch_size']
+    def setup_holdout_model(self, config, logger):
+        """Retrieve the holdout model from config for computing irreducible loss."""
+        teacher_model_path = config['teacher_model_path']
+        teacher_model_source = config['teacher_model_source']
 
-        # Apply same indices to both datasets
-        self.train_dset = Subset(self.original_train_dset, self.train_indices)
-        self.train_dset_unaugmented = Subset(train_dset_unaugmented, self.train_indices)
-        self.holdout_dataset_augmented = Subset(self.original_train_dset, self.holdout_indices)
-        self.holdout_dataset_unaugmented = Subset(train_dset_unaugmented, self.holdout_indices)
+        if teacher_model_source == "clip":
+            self.teacher_model = CLIPZeroShotClassifier(
+                self.data_info["classes"],
+                self.data_info["template"],
+                config["dataset"]["name"],
+                config["clip"]["clip_architecture"],
+                tau = config["clip"]["tau"],
+            )
 
-        self.holdout_dataloader_augmented = DataLoader(self.holdout_dataset_augmented, batch_size=self.holdout_batch_size, shuffle=True)
-        self.holdout_dataloader_unaugmented = DataLoader(self.holdout_dataset_unaugmented, batch_size=self.holdout_batch_size, shuffle=True)
-        self.train_dataloader_augmented = DataLoader(self.train_dset, batch_size=self.batch_size, shuffle=True, pin_memory = True, num_workers=self.num_data_workers)
-        self.train_dataloader_unaugmented = DataLoader(self.train_dset_unaugmented, batch_size=self.batch_size, shuffle=True, pin_memory = True, num_workers=self.num_data_workers)
+        elif teacher_model_source == "timm":
+            # Load model directly
+            model = timm.create_model(teacher_model_path, pretrained=True)
+            self.teacher_model = model
+
+        elif teacher_model_source == "local_pretrained":
+            # Get specifications from method and data configs to create teacher model
+            teacher_model_type = config['local_pretrained']['type']
+            teacher_model_args = dict(config['local_pretrained']['params'])
+            teacher_model_args['in_channels'] = config['dataset']['in_channels']
+            teacher_model_args['num_classes'] = config['dataset']['num_classes']
+
+            try:
+                self.teacher_model = getattr(models, teacher_model_type)(**teacher_model_args)
+            except AttributeError:
+                raise ValueError(f"Unknown teacher model type: {teacher_model_type}")
+            # Load teacher model weights from path
+            self.teacher_model.load_state_dict(torch.load(teacher_model_path, map_location=self.device))
+            self.teacher_model.eval()
+
+        else:
+            raise ValueError("Teacher model type {teacher_model_source} not supported.")
+        
+        logger.info(f"Loading holdout model from {teacher_model_path}")
+        self.teacher_model.to(self.device)
+    
 
     def precompute_losses(self):
         """Precompute irreducible losses for the training dataset using the holdout model."""
-        self.holdout_model.eval()
-        losses_tensor = torch.zeros(self.original_train_dset.__len__())
+        self.teacher_model.eval()
+        losses_tensor = torch.zeros(len(self.train_dset))
 
         with torch.no_grad():
-            for datas in self.train_dataloader_unaugmented:
+            for datas in self.train_loader:
                 inputs = datas['input'].to(self.device)
                 targets = datas['target'].to(self.device)
                 indexes = datas['index']
-                outputs = self.holdout_model(inputs)
+                outputs = self.teacher_model(inputs)
                 loss = F.cross_entropy(outputs, targets, reduction='none')
-                losses_tensor[indexes] = loss.cpu()
+                losses_tensor[indexes] = loss.float().cpu()
 
         # Attach the losses tensor directly to the dataset object
-        self.original_train_dset.irreducible_loss_cache = losses_tensor
+        self.train_dset.irreducible_loss_cache = losses_tensor
         self.logger.info(f"Cached irreducible losses for {len(losses_tensor)} samples in dataset.")
 
-
-    def setup_holdout_model(self, config, logger):
-        """"Retrieve the holdout model for computing irreducible loss.
-        Args:
-            config (dict): Configuration dictionary containing model parameters.
-            logger (logging.Logger): Logger instance for logging information.
-        """
-        holdout_model_path = config['rholoss']['holdout_model_path']
-        model_type = config['rholoss']['networks']['type']
-        model_args = config['rholoss']['networks']['params']
-
-        # Create model
-        self.holdout_model = getattr(models, model_type)(**model_args)
-        self.holdout_model.to(self.device)
-
-        if holdout_model_path == 'None':
-            self.train_holdout_model(config, logger)
-        else:
-            try:
-                logger.info(f"Loading holdout model from {holdout_model_path}")
-                self.holdout_model.load_state_dict(torch.load(holdout_model_path, map_location=self.device))
-            except FileNotFoundError:
-                raise ValueError("Invalid holdout_model configuration.")
-
-    def train_holdout_model(self, config, logger):
-        """
-        Train the holdout model for estimating irreducible loss.
-
-        Args:
-            config (dict): Configuration settings for training.
-            logger (Logger): Logging utility.
-            holdout_dataloader (DataLoader): DataLoader for holdout set.
-            holdout_epochs (int): Number of epochs to train the holdout model.
-        """
-        
-        optimizer = create_optimizer(self.holdout_model, config)
-        criterion = create_holdout_criterion(config, logger)
-
-        epochs = config['rholoss']['holdout_num_epochs']
-        total_batch = len(self.holdout_dataloader_augmented)
-
-        logger.info(f"[Holdout Model] Starting training for {epochs} epochs on {total_batch} batches per epoch.")
-
-        best_loss = float('inf')
-        best_model_path = os.path.join(self.config['save_dir'], f'best_holdout.pth.tar')
-
-        self.holdout_model.train()
-        for epoch in range(epochs):
-            epoch_loss = 0.0
-            for i, datas in enumerate(self.holdout_dataloader_augmented):
-                inputs = datas['input'].to(self.device)
-                targets = datas['target'].to(self.device)
-                
-                with torch.set_grad_enabled(True):
-                    outputs = self.holdout_model(inputs)
-                    loss = criterion(outputs, targets)
-                    optimizer.zero_grad()
-                    loss.backward()
-                    optimizer.step()
-
-                batch_loss = loss.item()
-                epoch_loss += batch_loss
-
-            avg_epoch_loss = epoch_loss / total_batch
-            logger.info(f"[Holdout Model][Epoch {epoch+1}/{epochs}] "
-                        f"Average Loss: {avg_epoch_loss:.4f}")
-            
-            # Track lowest loss and save best model path
-            # Evaluate on validation set if available
-            self.holdout_model.eval()
-            val_loss = 0.0
-            val_batches = 0
-            
-            with torch.no_grad():
-                for val_datas in self.train_dataloader_unaugmented:
-                    val_inputs = val_datas['input'].to(self.device)
-                    val_targets = val_datas['target'].to(self.device)
-                    outputs = self.holdout_model(val_inputs)
-                    loss = criterion(outputs, val_targets)
-                    val_loss += loss.item()
-                    val_batches += 1
-            avg_val_loss = val_loss / max(1, val_batches)
-            logger.info(f"[Holdout Model][Epoch {epoch+1}/{epochs}] Validation Loss: {avg_val_loss:.4f}")
-
-            # Save best model if average validation loss improves
-            if avg_val_loss < best_loss:
-                best_loss = avg_val_loss
-                torch.save(self.holdout_model.state_dict(), best_model_path)
-                logger.info(f"Best holdout model updated at epoch {epoch+1}")
-        
-        # Save model state with least validation loss
-        best_model_state = torch.load(best_model_path, map_location=self.device)
-
-        self.holdout_model.load_state_dict(best_model_state)
-
-        # Freeze parameters
-        for param in self.holdout_model.parameters():
-            param.requires_grad = False
-
-        self.holdout_model.eval()
-    
     def get_ratio_per_epoch(self, epoch):
         if epoch < self.warmup_epochs:
             self.logger.info('warming up')
@@ -224,16 +139,11 @@ class RhoLoss(SelectionMethod):
         """
         # Set models to eval mode
         self.model.eval()
-        self.holdout_model.eval()
 
-        # Get total loss from main model
+        # Get student loss from main model, irreducible loss from teacher model, and reducible loss by calculating the difference
         with torch.no_grad():
             total_loss = F.cross_entropy(self.model(inputs), targets, reduction='none')
-
-        # Get irreducible loss from holdout model
-        irreducible_loss = self.original_train_dset.irreducible_loss_cache[indexes].to(total_loss.device)
-
-        # Compute reducible loss
+        irreducible_loss = self.train_dset.irreducible_loss_cache[indexes].to(total_loss.device)
         reducible_loss = total_loss - irreducible_loss
 
         # Select samples with highest reducible loss
