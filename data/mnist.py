@@ -85,8 +85,6 @@ def MNIST(config, logger):
         config['dataset']['root'], train=True, download=True, transform= transform
     )
     
-    dst_train_unaugmented = datasets.MNIST(
-        config['dataset']['root'], train=True, download=True, transform= test_transform)
     
     dst_test = datasets.MNIST(config['dataset']['root'], train=False, download=True, transform=test_transform)
     # class_names = dst_train.classes
@@ -101,7 +99,6 @@ def MNIST(config, logger):
     return {
         'num_classes': num_classes,
         'train_dset': wrapped_dataset(dst_train),
-        'train_dset_unaugmented': wrapped_dataset(dst_train_unaugmented),
         'test_loader': test_loader,
         'num_train_samples': len(dst_train),
         "classes": mnist_classes,
@@ -136,8 +133,6 @@ def FashionMNIST(config, logger):
         config['dataset']['root'], train=True, download=True, transform= transform
     )
     
-    dst_train_unaugmented = datasets.FashionMNIST(
-        config['dataset']['root'], train=True, download=True, transform= test_transform)
     
     dst_test = datasets.FashionMNIST(config['dataset']['root'], train=False, download=True, transform=test_transform)
     # class_names = dst_train.classes
@@ -152,7 +147,6 @@ def FashionMNIST(config, logger):
     return {
         'num_classes': num_classes,
         'train_dset': wrapped_dataset(dst_train),
-        'train_dset_unaugmented': wrapped_dataset(dst_train_unaugmented),
         'test_loader': test_loader,
         'num_train_samples': len(dst_train),
         "classes": fashionmnist_classes,

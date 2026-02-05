@@ -61,9 +61,6 @@ class Bayesian(SelectionMethod):
         self.alpha = config["alpha"]
         self.adaptive_alpha = config["adaptive_alpha"]
 
-        self.train_dset_unaugmented = self.data_info["train_dset_unaugmented"]
-        self.train_dataloader_unaugmented = DataLoader(self.train_dset_unaugmented, batch_size=self.batch_size, shuffle=False, pin_memory = True, num_workers=self.num_data_workers, drop_last=False)
-
         self.precompute_losses()
 
     def precompute_losses(self):
@@ -71,7 +68,7 @@ class Bayesian(SelectionMethod):
         losses_tensor = torch.zeros(self.train_dset.__len__())
 
         with torch.no_grad():
-            for datas in self.train_dataloader_unaugmented:
+            for datas in self.train_loader:
                 inputs = datas['input'].to(self.device)
                 targets = datas['target'].to(self.device)
                 indexes = datas['index']
