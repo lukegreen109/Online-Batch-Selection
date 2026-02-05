@@ -35,7 +35,6 @@ class RhoLoss(SelectionMethod):
         self.ratio = config['method_opt']['ratio']
         self.ratio_scheduler = config['method_opt']['ratio_scheduler'] if 'ratio_scheduler' in config['method_opt'] else 'constant'
         self.warmup_epochs = config['method_opt']['warmup_epochs'] if 'warmup_epochs' in config['method_opt'] else 0
-        self.current_train_indices = np.arange(self.num_train_samples)
         self.reduce_dim = config['method_opt']['reduce_dim'] if 'reduce_dim' in config['method_opt'] else False
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         

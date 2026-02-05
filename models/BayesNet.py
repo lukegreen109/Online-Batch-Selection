@@ -6,6 +6,7 @@ import warnings
 import numpy as np
 import random
 import clip
+import math
 
 import data.data_utils.mean_std as mean_std
 
@@ -47,7 +48,6 @@ class KFCALLAWrapper(nn.Module):
         return hook
 
     def forward(self, x, **kwargs):
-        # parameters
         selection_pass = kwargs.get('selection_pass', False)
         y = kwargs.get('targets', None)
 
@@ -61,20 +61,33 @@ class KFCALLAWrapper(nn.Module):
 
             if self.num_data.item() == 0:
                 return out[:, None, :], out, None, None
-            
-            with torch.no_grad():
-                V = np.sqrt(self.num_effective_data) * self.A
-                V.diagonal().add_(np.sqrt(self.prior_precision))
-                L_V = psd_safe_cholesky(V)
-                U = np.sqrt(self.num_effective_data) * self.G
-                U.diagonal().add_(np.sqrt(self.prior_precision))
-                L_U = psd_safe_cholesky(U)
-                V_inv = torch.cholesky_inverse(L_V)
 
+            with torch.no_grad():
+                V = math.sqrt(self.num_effective_data) * self.A
+                V = V.clone()
+                V.diagonal().add_(math.sqrt(self.prior_precision))
+                L_V = psd_safe_cholesky(V)
+
+                U = math.sqrt(self.num_effective_data) * self.G
+                U = U.clone()
+                U.diagonal().add_(math.sqrt(self.prior_precision))
+                L_U = psd_safe_cholesky(U)
+
+                V_inv = torch.cholesky_inverse(L_V)
                 stds = (self.input_features_of_last_layer @ V_inv * self.input_features_of_last_layer).sum(-1).clamp(min=1e-6).sqrt()
-                L_f = stds.view(-1, 1, 1) * L_U.T.inverse()
-                f_samples = out[:, None, :] + torch.randn((bs, self.n_f_samples, out.shape[-1])).to(x.device) @ L_f
-                return f_samples, out, stds, torch.linalg.matrix_norm(L_U.T.inverse(), ord=2)
+
+                # Compute (L_U^T)^{-1} once
+                out_dim = out.shape[-1]
+                I = torch.eye(out_dim, device=out.device, dtype=out.dtype)
+                L_U_T_inv = torch.linalg.solve_triangular(L_U.T, I, upper=True)
+
+                L_f = stds.view(-1, 1, 1) * L_U_T_inv
+
+                eps = torch.randn((bs, self.n_f_samples, out_dim), device=out.device, dtype=out.dtype)
+                f_samples = out[:, None, :] + eps @ L_f
+
+                # return f_samples, out, stds, torch.linalg.matrix_norm(L_U.T.inverse(), ord=2)  # for debugging, but computing SVD is expensive
+                return f_samples, out, None, None
         elif self.training:
             assert y is not None, "Targets must be provided during training"
             with torch.no_grad():

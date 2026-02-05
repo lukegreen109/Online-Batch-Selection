@@ -35,10 +35,10 @@ class Bayesian(SelectionMethod):
 
         self.model = KFCALLAWrapper(
             net=self.model,
-            num_effective_data=config["bayesian"]["num_effective_data"],
-            prior_precision=config["bayesian"]["prior_precision"],
-            n_f_samples=config["bayesian"]["n_f_samples"],
-            momentum=config["bayesian"]["laplace_momentum"],
+            num_effective_data=config["num_effective_data"],
+            prior_precision=config["prior_precision"],
+            n_f_samples=config["n_f_samples"],
+            momentum=config["laplace_momentum"],
         )
         self.model = self.model.cuda()
 
@@ -50,16 +50,16 @@ class Bayesian(SelectionMethod):
             self.classes,
             self.template,
             config["dataset"]["name"],
-            config["bayesian"]["clip_architecture"],
-            tau = config["bayesian"]["tau"],
+            config["clip_architecture"],
+            tau = config["tau"],
         )
 
         self.clip_clf = self.clip_clf.cuda()
         self.clip_clf.eval()
         self.test_clip() # Validate CLIP classifier test accuracy
 
-        self.alpha = config["bayesian"]["alpha"]
-        self.adaptive_alpha = config["bayesian"]["adaptive_alpha"]
+        self.alpha = config["alpha"]
+        self.adaptive_alpha = config["adaptive_alpha"]
 
         self.train_dset_unaugmented = self.data_info["train_dset_unaugmented"]
         self.train_dataloader_unaugmented = DataLoader(self.train_dset_unaugmented, batch_size=self.batch_size, shuffle=False, pin_memory = True, num_workers=self.num_data_workers, drop_last=False)
@@ -125,14 +125,10 @@ class Bayesian(SelectionMethod):
         else:
             raise NotImplementedError
 
-    def bayesian_selection(self, inputs, targets, indexes, number_to_select):
+    def bayesian_selection(self, inputs, targets, indexes, number_to_select):        
         f_samples, outputs, stds, L_U_T_inverse = self.model(
             inputs, selection_pass=True
         )
-        # if self.adaptive_alpha:
-        #     bayes_loss = self.criterion(outputs, targets).item()
-        #     clip_loss = self.criterion(clip_outputs, targets).item()
-        #     self.alpha = clip_loss / (bayes_loss + clip_loss)
 
         first_term = (
             -F.cross_entropy(
@@ -143,7 +139,13 @@ class Bayesian(SelectionMethod):
             .view(f_samples.shape[0], f_samples.shape[1])
             .mean(1)
         )
-        second_term = self.train_dset.clip_loss_cache[indexes].to(f_samples.device)
+        clip_outputs = self.train_dset.clip_loss_cache[indexes].to(f_samples.device)
+        if self.adaptive_alpha:
+            bayes_loss = self.criterion(outputs, targets).item()
+            clip_loss = self.criterion(clip_outputs, targets).item()
+            self.alpha = clip_loss / (bayes_loss + clip_loss)
+
+        second_term = clip_outputs
         third_term = -F.cross_entropy(f_samples.softmax(-1).mean(1).log(), targets, reduction="none")
         select_obj = self.alpha * first_term + (1 - self.alpha) * second_term - third_term
         _, index_selected = torch.topk(select_obj, number_to_select)
@@ -162,11 +164,14 @@ class Bayesian(SelectionMethod):
                     "selecting samples for epoch {}, ratio {}".format(epoch, ratio)
                 )
         number_to_select = int(inputs.shape[0] * ratio)
+
         self.model.eval()
         with torch.no_grad():
             indices = self.bayesian_selection(inputs, targets, indexes, number_to_select)
         self.model.train()
+
         inputs = inputs[indices]
         targets = targets[indices]
         indexes = indexes[indices]
+
         return inputs, targets, indexes

@@ -5,12 +5,14 @@ method_opt:
   ratio_scheduler: constant
   warmup_epochs: 0
 
-bayesian:
-  adaptive_alpha: False
-  alpha: 0.2
-  tau: 4
-  prior_precision: 10
-  num_effective_data: 200
-  laplace_momentum: 0.99
-  n_f_samples: 256
-  clip_architecture: 'RN50'
+# Online Laplace Approximation Parameters
+adaptive_alpha: False
+alpha: 0.2
+prior_precision: 10
+num_effective_data: 200
+laplace_momentum: 0.99
+n_f_samples: 256
+
+# Clip Parameters
+clip_architecture: 'RN50'
+tau: 4
