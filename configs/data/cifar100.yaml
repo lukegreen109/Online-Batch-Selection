@@ -1,0 +1,8 @@
+dataset:
+  name: CIFAR10
+  root: ./_CIFAR
+  noise: False
+  noise_percent: 0
+  num_classes: 100
+  im_size: [32,32]
+  in_channels: 3

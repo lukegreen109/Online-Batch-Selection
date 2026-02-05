@@ -22,6 +22,8 @@ class SelectionMethod(object):
         # create model
         model_type = config['networks']['type']
         model_args = config['networks']['params']
+        model_args['in_channels'] = config['dataset']['in_channels']
+        model_args['num_classes'] = config['dataset']['num_classes']
         self.training_opt = config['training_opt']
         self.model = getattr(models, model_type)(**model_args)
         self.start_epoch = 0
@@ -50,7 +52,7 @@ class SelectionMethod(object):
         # create EMA model
         self.ema_net = EMA(
             self.model,
-            beta=config["ema_momentum"],
+            beta=0.99,
             update_after_step=0,
             update_every=5,
         )
@@ -70,7 +72,6 @@ class SelectionMethod(object):
         self.train_dset = self.data_info['train_dset']
         self.test_loader = self.data_info['test_loader']
         self.num_train_samples = self.data_info['num_train_samples']
-
 
         if config['dataset']['noise'] == True:
             self.noise == True
@@ -105,29 +106,10 @@ class SelectionMethod(object):
             self.noise = False
             self.noisy_indices = np.array([])
 
-        # If including holdout dataset for rholoss holdout model and/or comparison to rholoss
-        if config['dataset']['holdout_percentage'] > 0:
-                        
-            self.holdout_percentage = config['dataset']['holdout_percentage']
-
-            # get length of training set
-            train_len = int(self.num_train_samples * (1 - self.holdout_percentage))
-            
-            # selected random indices for training and holdout
-            permuted_indices = torch.randperm(self.num_train_samples, generator=torch.Generator().manual_seed(config['seed']))
-            self.train_indices = permuted_indices[:train_len]
-            self.holdout_indices = permuted_indices[train_len:]
-
-            # form new training dataset
-            self.original_train_dset = self.train_dset
-            self.train_dset = Subset(self.original_train_dset, self.train_indices)
-            self.num_train_samples = train_len
-   
-
         self.criterion = create_criterion(config, logger)
         self.need_features = False
-                
 
+        self.train_loader = DataLoader(self.train_dset, batch_size=self.batch_size, shuffle=True, num_workers=self.num_data_workers, pin_memory=True, drop_last=False)
         
     def resume(self, resume_path):
         if os.path.isfile(resume_path):
@@ -145,21 +127,23 @@ class SelectionMethod(object):
             self.logger.info(("=> no checkpoint found at '{}'".format(resume_path)))
 
     def save_checkpoint(self, state, is_best, filename='checkpoint.pth.tar'):
-        filename = os.path.join(self.config['output_dir'],filename)
-        best_filename = os.path.join(self.config['output_dir'],'model_best.pth.tar')
+        filename = os.path.join(self.config['save_dir'],filename)
+        best_filename = os.path.join(self.config['save_dir'],'model_best.pth.tar')
         torch.save(state, filename)
-        self.logger.info(f'Save checkpoint to {filename}')
+        # self.logger.info(f'Save checkpoint to {filename}')
         if is_best:
             shutil.copyfile(filename, best_filename)
-            self.logger.info(f'Save best checkpoint to {best_filename}')
-        
+            # self.logger.info(f'Save best checkpoint to {best_filename}')
 
     def run(self):
         self.before_run()
         self.run_begin_time = time.time()
-        self.total_step = 0
         self.logger.info(f'Begin training for {self.method_name}...')
-        for epoch in range(self.start_epoch, self.epochs):
+
+        # Log first epoch before training to confirm same initialization
+        self.log_statistics(epoch = self.start_epoch)
+
+        for epoch in range(self.start_epoch+1, self.epochs+1):
             list_of_train_idx = self.before_epoch(epoch)
             self.train(epoch, list_of_train_idx)
             self.after_epoch(epoch)
@@ -170,15 +154,18 @@ class SelectionMethod(object):
         self.after_run()
 
     def before_run(self):
-        pass
-        
+        self.total_time = 0
+        self.time_this_epoch = 0
+        self.total_step = 0
 
-    def before_epoch(self,epoch):
+    def before_epoch(self, epoch):
         # select samples for this epoch
+        self.num_selected_noisy_indexes = 0
         return np.arange(self.num_train_samples)
 
     def after_epoch(self, epoch):
-        pass
+        self.log_statistics(epoch)
+        self.save_model(epoch)
 
     def after_run(self):
         pass
@@ -186,76 +173,44 @@ class SelectionMethod(object):
     def before_batch(self, i, inputs, targets, indexes, epoch):
         # online batch selection
         return inputs, targets, indexes
-    
+
     def after_batch(self, i, inputs, targets, indexes, outputs):
         self.ema_net.update()
-
+        # record noisy points selected
+        self.num_selected_noisy_indexes = self.num_selected_noisy_indexes + np.intersect1d(indexes, self.noisy_indices).size
 
     def train(self, epoch, list_of_train_idx):
-        # train for one epoch
-        self.model.train()
-        self.logger.info('Epoch: [{} | {}] LR: {}'.format(epoch, self.epochs, self.optimizer.param_groups[0]['lr']))
-
-        # data loader
-        # sub_train_dset = torch.utils.data.Subset(self.train_dset, list_of_train_idx)
-        list_of_train_idx = np.random.permutation(list_of_train_idx)
-        batch_sampler = torch.utils.data.BatchSampler(list_of_train_idx, batch_size=self.batch_size,
-                                                      drop_last=False)
-        # list_of_train_idx = list(batch_sampler)
-
-        train_loader = torch.utils.data.DataLoader(self.train_dset, num_workers=self.num_data_workers, pin_memory=True, batch_sampler=batch_sampler)
-        total_batch = len(train_loader)
+        # train for one epoch and record time taken
+        total_batch = len(self.train_loader)
         epoch_begin_time = time.time()
-        self.num_selected_noisy_indexes = 0
-        epoch_loss = 0.0
-        num_samples = 0
-        epoch_train_acc = 0.0
+        
         # train
-        for i, datas in enumerate(train_loader):
-            inputs = datas['input'].cuda()
-            targets = datas['target'].cuda()
-            indexes = datas['index']
-            inputs, targets, indexes = self.before_batch(i, inputs, targets, indexes, epoch)
-            outputs, features = self.model(x=inputs, need_features=self.need_features, targets=targets) if self.need_features else (self.model(x=inputs, need_features=False, targets=targets), None)
-            loss = self.criterion(outputs, targets)
-            self.while_update(outputs, loss, targets, epoch, features, indexes, batch_idx=i, batch_size=self.batch_size)
+        for i, datas in enumerate(self.train_loader):
+            self.model.train()
+            batch_inputs = datas['input'].cuda()
+            batch_targets = datas['target'].cuda()
+            batch_indexes = datas['index']
+            selected_inputs, selected_targets, selected_indexes = self.before_batch(i, batch_inputs, batch_targets, batch_indexes, epoch)
+            selected_outputs, features = self.model(x=selected_inputs, need_features=self.need_features, targets=selected_targets) if self.need_features else (self.model(x=selected_inputs, need_features=False, targets=selected_targets), None)
+            loss = self.criterion(selected_outputs, selected_targets)
+            self.while_update(selected_outputs, loss, selected_targets, epoch, features, selected_indexes, batch_idx=i, batch_size=self.batch_size)
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-            self.after_batch(i,inputs, targets, indexes,outputs.detach())
-
-            # record statistics for logging
-            batch_size = targets.size(0)
-            num_samples += batch_size
-            epoch_loss += loss.item() * batch_size
-            _, predicted = torch.max(outputs.data, 1)
-            correct = (predicted == targets).sum().item()
-            epoch_train_acc += correct
-            self.num_selected_noisy_indexes = self.num_selected_noisy_indexes +  np.intersect1d(indexes, self.noisy_indices).size
+            self.after_batch(i, selected_inputs, selected_targets, selected_indexes, selected_outputs.detach())
         
-        # Log epoch statistics
         now = time.time()
-        self.scheduler.step()
+        self.time_this_epoch = now - epoch_begin_time
+        self.total_time = now - self.run_begin_time
         self.total_step = self.total_step + total_batch
-        avg_epoch_train_loss = epoch_loss / num_samples
-        avg_epoch_train_acc = epoch_train_acc / num_samples
-        #self.num_selected_noisy_indexes += np.intersect1d(indexes.cpu().numpy(), self.noisy_indices.cpu().numpy()).size
-        self.logger.info(f'=====> Epoch: {epoch}/{self.training_opt["num_epochs"]}, global_step: {self.total_step+i}, lr: {self.optimizer.param_groups[0]["lr"]:.6f}, Train Loss: {avg_epoch_train_loss:.4f}, Train acc: {avg_epoch_train_acc:.4f}')
+        self.scheduler.step()
 
-        # test and log to wandb
-        val_acc, val_loss, ema_val_acc = self.test()
-        self.logger.info(f'=====> Time: {now - self.run_begin_time:.4f} s, Time this epoch: {now - epoch_begin_time:.4f} s, Total step: {self.total_step}')
-        self.logger.wandb_log({'epoch': epoch, 'lr': self.optimizer.param_groups[0]['lr'], 'val_loss': val_loss, 'val_acc': val_acc, 'train_loss': avg_epoch_train_loss,
-                                'train_acc': avg_epoch_train_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'best_val_acc': max(self.best_acc, val_acc), 'total_time': now - self.run_begin_time,
-                                'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'percent noisy points selected': self.num_selected_noisy_indexes / len(self.train_dset)})
+    def while_update(self, outputs, loss, targets, epoch, features, indexes, batch_idx, batch_size):
+        pass
 
+    def save_model(self, epoch):
         # save model
-        self.logger.info('=====> Save model')
-        is_best = False
-        if val_acc > self.best_acc:
-            self.best_epoch = epoch
-            self.best_acc = val_acc
-            is_best = True
+        self.logger.info('=====> Saving current model and best model')
         checkpoint = {
                 'epoch': epoch,
                 'state_dict': self.model.module.state_dict() if hasattr(self.model, 'module') else self.model.state_dict(),
@@ -264,16 +219,55 @@ class SelectionMethod(object):
                 'best_acc': self.best_acc,
                 'best_epoch': self.best_epoch
             }
-        self.save_checkpoint(checkpoint, is_best)
-        self.logger.info(f'=====> Epoch: {epoch}/{self.epochs}, Best val acc: {self.best_acc:.4f}, Current val acc: {val_acc:.4f}')
-        self.logger.info(f'=====> Best epoch: {self.best_epoch}')
+        self.save_checkpoint(checkpoint, self.is_best)
 
-    def while_update(self, outputs, loss, targets, epoch, features, indexes, batch_idx, batch_size):
-        pass
+    def log_statistics(self, epoch):
+        # Log statistics
+        train_acc, train_loss = self.test_train()
+        val_acc, val_loss, ema_val_acc = self.test_val()
 
-    def test(self):
+        # Record if this is best model so far
+        self.is_best = False
+        if val_acc > self.best_acc:
+            self.best_epoch = epoch
+            self.best_acc = val_acc
+            self.is_best = True
+
+        self.logger.info(f'=====> Epoch: {epoch}/{self.epochs}, Total_step: {self.total_step}, lr: {self.optimizer.param_groups[0]["lr"]:.6f}, Total Time: {self.total_time:.4f} s, Time this epoch: {self.time_this_epoch:.4f} s')
+        self.logger.info(f'=====> Epoch: {epoch}/{self.epochs}, Train Loss: {train_loss:.4f}, Train acc: {train_acc:.4f}, Best val acc: {self.best_acc:.4f}, Current val acc: {val_acc:.4f}, EMA val acc: {ema_val_acc}')
+
+        # Log to Weights and Biases
+        self.logger.wandb_log({'epoch': epoch, 'lr': self.optimizer.param_groups[0]['lr'], 'val_loss': val_loss, 'val_acc': val_acc, 'train_loss': train_loss,
+                                'train_acc': train_acc, 'ema_val_acc': ema_val_acc, 'best_val_acc': max(self.best_acc, val_acc), 'total_time': self.total_time,
+                                'total_step': self.total_step, 'time_epoch': self.time_this_epoch, 'percent noisy points selected': self.num_selected_noisy_indexes / len(self.train_dset)})
+
+    def test_train(self):
+        model = self.model.module if hasattr(self.model, 'module') else self.model
+        model.eval()
+        all_preds = []
+        all_labels = []
+        epoch_loss = 0.0
+        num_samples = 0
+        with torch.no_grad():
+            for i, datas in enumerate(self.train_loader):
+                inputs = datas['input'].cuda()
+                targets = datas['target'].cuda()
+                outputs = model(inputs)
+                train_loss = self.criterion(outputs, targets)
+                preds = torch.argmax(outputs, dim=1)
+                all_preds.append(preds.cpu().numpy())
+                all_labels.append(targets.cpu().numpy())
+                batch_size = targets.size(0)
+                epoch_loss += train_loss.item() * batch_size
+                num_samples += batch_size
+        avg_train_loss = epoch_loss / num_samples
+        all_preds = np.concatenate(all_preds)
+        all_labels = np.concatenate(all_labels)
+        train_acc = np.mean(all_preds == all_labels)
+        return train_acc, avg_train_loss
+
+    def test_val(self):
         # customize to use ema model for testing
-        self.logger.info('=====> Start Validation')
         model = self.model.module if hasattr(self.model, 'module') else self.model
         ema_model = self.ema_net.ema_module if hasattr(self.ema_net, 'ema_module') else self.ema_net
         model.eval()
@@ -303,8 +297,5 @@ class SelectionMethod(object):
         all_labels = np.concatenate(all_labels)
         acc = np.mean(all_preds == all_labels)
         ema_acc = np.mean(all_ema_preds == all_labels)
-        self.logger.info(f'=====> Validation Accuracy: {acc:.4f}')
-        self.logger.info(f'=====> EMA Validation Accuracy: {ema_acc:.4f}')
-
         return acc, avg_epoch_test_loss,ema_acc
 

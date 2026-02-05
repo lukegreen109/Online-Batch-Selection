@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torch.utils.data import DataLoader
 
 from .SelectionMethod import SelectionMethod
 from models.BayesNet import CLIPZeroShotClassifier
@@ -25,19 +26,19 @@ class Bayesian(SelectionMethod):
             else 0
         )
 
-        self.current_train_indices = np.arange(self.num_train_samples)
         self.reduce_dim = (
             config["method_opt"]["reduce_dim"]
             if "reduce_dim" in config["method_opt"]
             else False
         )
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.model = KFCALLAWrapper(
             net=self.model,
-            num_effective_data=config["bayesian"]["num_effective_data"],
-            prior_precision=config["bayesian"]["prior_precision"],
-            n_f_samples=config["bayesian"]["n_f_samples"],
-            momentum=config["bayesian"]["laplace_momentum"],
+            num_effective_data=config["num_effective_data"],
+            prior_precision=config["prior_precision"],
+            n_f_samples=config["n_f_samples"],
+            momentum=config["laplace_momentum"],
         )
         self.model = self.model.cuda()
 
@@ -49,26 +50,38 @@ class Bayesian(SelectionMethod):
             self.classes,
             self.template,
             config["dataset"]["name"],
-            config["bayesian"]["clip_architecture"],
+            config["clip_architecture"],
+            tau = config["tau"],
         )
 
         self.clip_clf = self.clip_clf.cuda()
         self.clip_clf.eval()
         self.test_clip() # Validate CLIP classifier test accuracy
 
-        assert "tau" in config["bayesian"], (
-            "Bayesian tau parameter is not set in config"
-        )
-        self.tau = config["bayesian"]["tau"]
-        assert "adaptive_alpha" in config["bayesian"], (
-            "Bayesian adaptive_alpha parameter is not set in config"
-        )
-        self.alpha = config["bayesian"]["alpha"]
-        self.adaptive_alpha = config["bayesian"]["adaptive_alpha"]
+        self.alpha = config["alpha"]
+        self.adaptive_alpha = config["adaptive_alpha"]
+
+        self.precompute_losses()
+
+    def precompute_losses(self):
+        """Precompute losses for the training dataset using the clip model."""
+        losses_tensor = torch.zeros(self.train_dset.__len__())
+
+        with torch.no_grad():
+            for datas in self.train_loader:
+                inputs = datas['input'].to(self.device)
+                targets = datas['target'].to(self.device)
+                indexes = datas['index']
+                outputs = self.clip_clf(inputs)
+                loss = - F.cross_entropy(outputs, targets, reduction='none')
+                losses_tensor[indexes] = loss.cpu().float()
+
+        # Attach the losses tensor directly to the dataset object
+        self.train_dset.clip_loss_cache = losses_tensor
+        self.logger.info(f"Cached clip losses for {len(losses_tensor)} samples in dataset.")
 
     def test_clip(self):
         self.logger.info('=====> Start CLIP Validation')
-        self.clip_clf.eval()
         all_preds = []
         all_labels = []
         with torch.no_grad():
@@ -82,7 +95,7 @@ class Bayesian(SelectionMethod):
         all_preds = np.concatenate(all_preds)
         all_labels = np.concatenate(all_labels)
         acc = np.mean(all_preds == all_labels)
-        self.logger.info(f'=====> CLIP Validation Accuracy: {acc:.4f}')
+        self.logger.info(f'=====> CLIP Test Accuracy: {acc:.4f}')
 
     def get_ratio_per_epoch(self, epoch):
         if epoch < self.warmup_epochs:
@@ -109,15 +122,10 @@ class Bayesian(SelectionMethod):
         else:
             raise NotImplementedError
 
-    def bayesian_selection(self, inputs, targets, number_to_select):
+    def bayesian_selection(self, inputs, targets, indexes, number_to_select):        
         f_samples, outputs, stds, L_U_T_inverse = self.model(
             inputs, selection_pass=True
         )
-        clip_outputs = self.clip_clf(inputs, tau=self.tau)
-        if self.adaptive_alpha:
-            bayes_loss = self.criterion(outputs, targets).item()
-            clip_loss = self.criterion(clip_outputs, targets).item()
-            self.alpha = clip_loss / (bayes_loss + clip_loss)
 
         first_term = (
             -F.cross_entropy(
@@ -128,10 +136,14 @@ class Bayesian(SelectionMethod):
             .view(f_samples.shape[0], f_samples.shape[1])
             .mean(1)
         )
-        second_term = -F.cross_entropy(clip_outputs, targets, reduction="none")
-        third_term = -F.cross_entropy(
-            f_samples.softmax(-1).mean(1).log(), targets, reduction="none"
-        )
+        clip_outputs = self.train_dset.clip_loss_cache[indexes].to(f_samples.device)
+        if self.adaptive_alpha:
+            bayes_loss = self.criterion(outputs, targets).item()
+            clip_loss = self.criterion(clip_outputs, targets).item()
+            self.alpha = clip_loss / (bayes_loss + clip_loss)
+
+        second_term = clip_outputs
+        third_term = -F.cross_entropy(f_samples.softmax(-1).mean(1).log(), targets, reduction="none")
         select_obj = self.alpha * first_term + (1 - self.alpha) * second_term - third_term
         _, index_selected = torch.topk(select_obj, number_to_select)
         return index_selected.cpu().numpy()
@@ -149,8 +161,14 @@ class Bayesian(SelectionMethod):
                     "selecting samples for epoch {}, ratio {}".format(epoch, ratio)
                 )
         number_to_select = int(inputs.shape[0] * ratio)
-        indices = self.bayesian_selection(inputs, targets, number_to_select)
+
+        self.model.eval()
+        with torch.no_grad():
+            indices = self.bayesian_selection(inputs, targets, indexes, number_to_select)
+        self.model.train()
+
         inputs = inputs[indices]
         targets = targets[indices]
         indexes = indexes[indices]
+
         return inputs, targets, indexes

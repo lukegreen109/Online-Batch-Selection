@@ -11,11 +11,11 @@ def create_criterion(config, logger):
         raise NotImplementedError
     return criterion
 
-def create_holdout_criterion(config, logger):
-    holdout_loss_type = config['rholoss']['holdout_loss_type']
-    holdout_loss_params = config['rholoss']['holdout_loss_params']
-    if holdout_loss_type == 'CrossEntropy':
-        criterion = nn.CrossEntropyLoss(**holdout_loss_params)
+def create_teacher_criterion(config, logger):
+    teacher_loss_type = config['rholoss']['teacher_loss_type']
+    teacher_loss_params = config['rholoss']['teacher_loss_params']
+    if teacher_loss_type == 'CrossEntropy':
+        criterion = nn.CrossEntropyLoss(**teacher_loss_params)
     else:
         raise NotImplementedError
     return criterion

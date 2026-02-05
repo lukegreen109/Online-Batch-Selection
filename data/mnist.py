@@ -3,12 +3,45 @@ import torch
 import numpy as np
 import random
 
-mnist_classes = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+mnist_classes = [
+    "zero",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+]
+
 mnist_templates = [
-    'a black and white photo of the number {}.',
-    'a blurry photo of the number {}',
-    'a photo of a hand-written {}',
-    'a high contrast photo of the number {}'
+    "a photo of the number {}.",
+    "a handwritten digit {}.",
+    "a grayscale image of the number {}.",
+    "a photo of a handwritten {}.",
+]
+
+fashionmnist_classes = [
+    "T-shirt",
+    "Trouser",
+    "Pullover",
+    "Dress",
+    "Coat",
+    "Sandal",
+    "Shirt",
+    "Sneaker",
+    "Bag",
+    "Ankle boot",
+]
+
+fashionmnist_templates = [
+    "a photo of a {}.",
+    "a grayscale photo of a {}.",
+    "a photo of a person wearing a {}.",
+    "a photo of a {} on a white background.",
+    "a photo of a {} item.",
 ]
 
 class wrapped_dataset(torch.utils.data.Dataset):
@@ -52,8 +85,6 @@ def MNIST(config, logger):
         config['dataset']['root'], train=True, download=True, transform= transform
     )
     
-    dst_train_unaugmented = datasets.MNIST(
-        config['dataset']['root'], train=True, download=True, transform= test_transform)
     
     dst_test = datasets.MNIST(config['dataset']['root'], train=False, download=True, transform=test_transform)
     # class_names = dst_train.classes
@@ -68,9 +99,10 @@ def MNIST(config, logger):
     return {
         'num_classes': num_classes,
         'train_dset': wrapped_dataset(dst_train),
-        'train_dset_unaugmented': wrapped_dataset(dst_train_unaugmented),
         'test_loader': test_loader,
         'num_train_samples': len(dst_train),
+        "classes": mnist_classes,
+        "template": mnist_templates
         'classes': mnist_classes,
         'template': mnist_templates
     }
@@ -103,8 +135,6 @@ def FashionMNIST(config, logger):
         config['dataset']['root'], train=True, download=True, transform= transform
     )
     
-    dst_train_unaugmented = datasets.FashionMNIST(
-        config['dataset']['root'], train=True, download=True, transform= test_transform)
     
     dst_test = datasets.FashionMNIST(config['dataset']['root'], train=False, download=True, transform=test_transform)
     # class_names = dst_train.classes
@@ -119,7 +149,8 @@ def FashionMNIST(config, logger):
     return {
         'num_classes': num_classes,
         'train_dset': wrapped_dataset(dst_train),
-        'train_dset_unaugmented': wrapped_dataset(dst_train_unaugmented),
         'test_loader': test_loader,
         'num_train_samples': len(dst_train),
+        "classes": fashionmnist_classes,
+        "template": fashionmnist_templates
     }

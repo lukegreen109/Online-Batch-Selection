@@ -1,0 +1,6 @@
+method: Uniform
+method_opt:
+  ratio: 0.1
+  balance: False
+  ratio_scheduler: constant
+  warmup_epochs: 0
