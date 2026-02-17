@@ -14,7 +14,7 @@ Expected config keys (under 'visualization'):
     milestones        : list[float]   – fractional epoch checkpoints
     embedding_methods : list[str]     – e.g. ["umap", "tsne"]
     embedding_params  : dict          – per-method kwargs for fob.compute_visualization
-    hf_model_name     : str           – timm model for ground-truth embeddings
+    hf_model_name     : str           – HuggingFace/timm model for ground-truth embeddings
     load_snapshot     : bool
     snapshot_path     : str | None
 """
@@ -77,18 +77,23 @@ class Visualizer:
         self.embedding_params  = vis_cfg.get("embedding_params", {})
         
         # ── HF Model Config ──────────────────────────────────────────────
-        # Map dataset names (lowercase) to HF model IDs or custom keys
+        # Map dataset names to timm model names (registered by the
+        # `detectors` package) for ground-truth embeddings.
+        # For MNIST / Fashion-MNIST we fall back to transformers.
         self.DATASET_MODEL_MAPPING = {
-            "cifar10": "edadaltocg/resnet50_supcon_cifar10",
-            "cifar100": "edadaltocg/resnet34_cifar100",
+            "cifar10": "resnet50_supcon_cifar10",
+            "cifar100": "resnet34_supcon_cifar100",
+            "svhn": "resnet18_svhn",
+            # MNIST / Fashion-MNIST have no timm models; handled via transformers
             "mnist": "farleyknight/mnist-digit-classification-2022-09-04",
             "fashion-mnist": "Kankanaghosh/vit-fashion-mnist",
-            "svhn": "edadaltocg/resnet18_svhn",
         }
-        
-        default_model = "microsoft/resnet-18"
-        self.hf_model_name = vis_cfg.get("hf_model_name", self.DATASET_MODEL_MAPPING.get(self.foz_name, default_model))
-        self.logger.info(f"[Visualizer] Selected HF model '{self.hf_model_name}' for dataset '{self.foz_name}'")
+        default_model = "resnet50_supcon_cifar10"
+        self.hf_model_name = vis_cfg.get(
+            "hf_model_name",
+            self.DATASET_MODEL_MAPPING.get(self.foz_name, default_model),
+        )
+        self.logger.info(f"[Visualizer] Selected model '{self.hf_model_name}' for dataset '{self.foz_name}'")
         self.output_dir        = config.get("output_dir", "./exp/output")
 
         # ── In-memory stores ─────────────────────────────────────────────
@@ -108,16 +113,8 @@ class Visualizer:
         name = self.dataset_name
 
         if fo.dataset_exists(name):
-            self.logger.info(f"[Visualizer] Loading existing FiftyOne dataset: '{name}'")
-            self.fo_dataset = fo.load_dataset(name)
-            # Ensure the field exists in case the dataset was created elsewhere
-            if not self.fo_dataset.has_field("original_index"):
-                self._set_original_index()
-            
-            # If empty, try populate
-            if len(self.fo_dataset) == 0 and self.data_loader is not None:
-                 self._populate_from_dataloader()
-            return
+            self.logger.info(f"[Visualizer] Deleting stale FiftyOne dataset: '{name}'")
+            fo.delete_dataset(name)
 
         self.logger.info(f"[Visualizer] Creating FiftyOne dataset: '{name}'")
 
@@ -240,230 +237,121 @@ class Visualizer:
     #  Embedding runs                                                       #
     # ------------------------------------------------------------------ #
 
-    def _load_custom_resnet_small(self, model_name: str, device):
-        """
-        Load a custom ResNet (18/34/50) adapted for small images (CIFAR/SVHN).
-        These models typically use:
-          - conv1 kernel_size=3, stride=1, padding=1
-          - no maxpool
-        """
-        if not TIMM_AVAILABLE:
-            raise ImportError("timm is required for custom ResNet loading.")
-            
-        self.logger.info(f"[Visualizer] Loading custom small-input ResNet: {model_name}")
-        
-        # 1. Infer architecture from name
-        if "resnet50" in model_name:
-            arch = "resnet50"
-        elif "resnet34" in model_name:
-            arch = "resnet34"
-        elif "resnet18" in model_name:
-            arch = "resnet18"
-        else:
-            self.logger.warning(f"[Visualizer] Could not infer ResNet depth from '{model_name}'. Defaulting to resnet50.")
-            arch = "resnet50"
-
-        # 2. Create standard model
-        model = timm.create_model(arch, pretrained=False, num_classes=0)
-        
-        # 3. Patch input layer for small images (3x3 kernel instead of 7x7, no pooling)
-        # Standard: Conv2d(3, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
-        # Small:    Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
-        if hasattr(model, "conv1"):
-            model.conv1 = torch.nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
-        if hasattr(model, "maxpool"):
-            model.maxpool = torch.nn.Identity()
-        
-        model = model.to(device)
-        
-        # 4. Load weights from Hugging Face
-        if HF_HUB_AVAILABLE:
-            try:
-                # Try downloading model.safetensors first, then pytorch_model.bin
-                try:
-                    weights_path = hf_hub_download(repo_id=model_name, filename="model.safetensors")
-                    from safetensors.torch import load_file
-                    state_dict = load_file(weights_path)
-                except Exception:
-                    weights_path = hf_hub_download(repo_id=model_name, filename="pytorch_model.bin")
-                    state_dict = torch.load(weights_path, map_location=device)
-                    
-                # Fix keys: remove 'module.' prefix if present, handle 'encoder.' etc.
-                new_state_dict = {}
-                for k, v in state_dict.items():
-                    name = k.replace("module.", "").replace("encoder.", "")
-                    new_state_dict[name] = v
-                    
-                model.load_state_dict(new_state_dict, strict=False)
-                self.logger.info(f"[Visualizer] Loaded weights for {model_name} successfully.")
-                
-            except Exception as e:
-                self.logger.error(f"[Visualizer] Failed to download/load weights from HF for {model_name}: {e}")
-                self.logger.warning("[Visualizer] Using random initialization!")
-        else:
-            self.logger.warning("[Visualizer] huggingface_hub not installed. Cannot download weights.")
-            
-        return model.eval()
-
     def add_huggingface_ground_truth_run(self):
         """
-        Extract embeddings from a pretrained model and store them.
-        Supports:
-          1. Custom CIFAR-10 ResNet (via timm patch)
-          2. MNIST (via transformers)
-          3. Standard ImageNet models (via timm)
+        Compute ground-truth embeddings using a pretrained model and create
+        a UMAP brain run.
+
+        Follows the approach from Voxel51.ipynb:
+          1. Load model via timm (detectors package registers CIFAR/SVHN models)
+          2. Read images directly from FiftyOne filepaths using cv2
+             (guarantees embedding[i] == FO sample[i])
+          3. Simple [0,1] normalisation — no random augmentations
         """
-        if self.data_loader is None:
-            self.logger.warning("[Visualizer] No data_loader — skipping HF ground-truth run.")
+        if self.fo_dataset is None or len(self.fo_dataset) == 0:
+            self.logger.warning("[Visualizer] No FO dataset — skipping ground-truth run.")
             return
 
         self.logger.info(
-            f"[Visualizer] Computing HF ground-truth embeddings "
+            f"[Visualizer] Computing ground-truth embeddings "
             f"with model '{self.hf_model_name}' …"
         )
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        # ── Load model ────────────────────────────────────────────────────
         model = None
+        is_timm_model = "/" not in self.hf_model_name  # timm names have no slash
 
-        # ── Strategy Selection ───────────────────────────────────────────
-        
-        # Strategy 1: custom small-input ResNets (CIFAR-10/100, SVHN)
-        # e.g. edadaltocg/resnetXX...
-        if ("cifar" in self.foz_name or "svhn" in self.foz_name) and "edadaltocg" in self.hf_model_name:
+        if is_timm_model and TIMM_AVAILABLE:
             try:
-                model = self._load_custom_resnet_small(self.hf_model_name, device)
+                import detectors  # registers CIFAR/SVHN models with timm
+                model = timm.create_model(
+                    self.hf_model_name, pretrained=True, num_classes=0
+                )
+                model = model.eval().to(device)
+                self.logger.info(
+                    f"[Visualizer] Loaded timm model '{self.hf_model_name}'"
+                )
             except Exception as e:
-                self.logger.error(f"[Visualizer] Custom ResNet load failed: {e}")
+                self.logger.info(
+                    f"[Visualizer] timm load failed for '{self.hf_model_name}': {e}"
+                )
                 return
-
-        # Strategy 2: MNIST / Fashion-MNIST (Transformers)
-        elif ("mnist" in self.foz_name or "fashion" in self.foz_name) and TRANSFORMERS_AVAILABLE:
+        elif TRANSFORMERS_AVAILABLE:
+            # Fallback for MNIST / Fashion-MNIST (HuggingFace transformers)
             try:
-                # MNIST models on HF are often specific and work best with AutoModel
-                self.logger.info(f"[Visualizer] Using transformers.AutoModel for {self.hf_model_name}")
                 model = AutoModel.from_pretrained(self.hf_model_name)
                 model = model.eval().to(device)
+                self.logger.info(
+                    f"[Visualizer] Loaded transformers model '{self.hf_model_name}'"
+                )
             except Exception as e:
-                self.logger.error(f"[Visualizer] Transformers load failed: {e}")
-                # Fallback to timm if possible? Usually not for MNIST.
+                self.logger.info(
+                    f"[Visualizer] Transformers load failed: {e}"
+                )
                 return
-
-        # Strategy 3: Standard timm (ImageNet etc.)
         else:
-            if not TIMM_AVAILABLE:
-                self.logger.error("[Visualizer] timm is not installed.")
-                return
-            try:
-                model = timm.create_model(self.hf_model_name, pretrained=True, num_classes=0)
-                model = model.eval().to(device)
-            except Exception as e:
-                self.logger.error(f"[Visualizer] timm load failed for '{self.hf_model_name}': {e}")
-                return
+            self.logger.info("[Visualizer] No model backend available (need timm or transformers).")
+            return
 
-        # ── Inference ────────────────────────────────────────────────────
-        
-        # Infer expected spatial size for this backbone
-        try:
-            if hasattr(model, "default_cfg"):
-                # timm model
-                cfg = model.default_cfg
-                min_size = cfg.get("input_size", (3, 32, 32))[1]
-            elif hasattr(model, "config") and hasattr(model.config, "image_size"):
-                # transformers model
-                min_size = model.config.image_size
-            else:
-                 min_size = 32
-        except Exception:
-            min_size = 32
-        
-        all_embs   = []
-        all_labels = []
+        # ── Read images from FiftyOne filepaths (notebook approach) ───────
+        # This guarantees embedding[i] corresponds to FO sample[i].
+        import cv2
 
-        with torch.no_grad():
-            for batch in self.data_loader:
-                inputs  = batch["input"].to(device)
-                targets = batch["target"]
-
-                # Preprocessing handling
-                # CIFAR custom model expects 32x32 (no resize needed if inputs are that size)
-                # MNIST transformers model might expect 1 channel? 
-                # If inputs are 1 channel and model expects 3, or vice versa, we might need adjustments.
-                
-                # Check model expectation if possible, or just try/catch
-                
-                # Proactive handling for Transformers models on MNIST/Fashion-MNIST (1-channel to 3-channel)
-                # The farleyknight/mnist model is a ViT that expects 3 channels
-                is_mnist_like = "mnist" in self.foz_name.lower() or "fashion" in self.foz_name.lower()
-                if is_mnist_like and inputs.shape[1] == 1:
-                     inputs = inputs.repeat(1, 3, 1, 1)
-
-                # Upsample only if the backbone requires larger inputs
-                if inputs.shape[-1] < min_size:
-                    inputs = F.interpolate(
-                        inputs, size=(min_size, min_size),
-                        mode="bilinear", align_corners=False,
-                    )
-
-                try:
-                    outputs = model(inputs)
-                    
-                    # Output handling
-                    if isinstance(outputs, torch.Tensor):
-                        embs = outputs
-                    elif hasattr(outputs, "pooler_output") and outputs.pooler_output is not None:
-                        # Transformers
-                        embs = outputs.pooler_output
-                    elif hasattr(outputs, "last_hidden_state"):
-                         # Transformers (e.g. ViT without pooler)
-                         # Mean pool
-                         embs = outputs.last_hidden_state.mean(dim=1)
-                    else:
-                        # Tuple or unknown
-                        embs = outputs[0] if isinstance(outputs, (tuple, list)) else outputs
-
-                    # Ensure 2D (N, D)
-                    if len(embs.shape) > 2:
-                        # Global average pool if spatial dims remain (e.g. from a Conv net that wasn't fully pooled)
-                        embs = embs.mean(dim=list(range(2, len(embs.shape))))
-                        
-                except Exception as e:
-                    # Catch-all for other shape/channel errors that might slip through
-                    msg = str(e).lower()
-                    if "channel" in msg or "shape" in msg or "dimension" in msg:
-                        # Last ditch effort: if we haven't already repeated (though we should have above)
-                        if inputs.shape[1] == 1:
-                             inputs_3 = inputs.repeat(1, 3, 1, 1)
-                             try:
-                                 outputs = model(inputs_3)
-                                 if isinstance(outputs, torch.Tensor): embs = outputs
-                                 elif hasattr(outputs, "pooler_output"): embs = outputs.pooler_output
-                                 else: embs = outputs.last_hidden_state.mean(dim=1)
-                             except Exception:
-                                 self.logger.warning(f"[Visualizer] Retry with 3 channels failed: {e}. Skipping batch.")
-                                 continue
-                        else:
-                             self.logger.warning(f"[Visualizer] Inference failed with shape error: {e}. Skipping batch.")
-                             continue
-                    else:
-                        self.logger.warning(f"[Visualizer] Forward pass failed: {e}. Skipping batch.")
-                        continue
-
-                all_embs.append(embs.cpu().numpy())
-                all_labels.append(targets.numpy() if isinstance(targets, torch.Tensor)
-                                  else np.asarray(targets))
-
-        if not all_embs:
-             self.logger.error("[Visualizer] No embeddings computed.")
-             return
-
-        embeddings = np.concatenate(all_embs,   axis=0)
-        labels     = np.concatenate(all_labels, axis=0)
-
-        self.in_memory_embeddings["hf_ground_truth"] = embeddings
+        target_size = (32, 32)
+        filepaths = self.fo_dataset.values("filepath")
         self.logger.info(
-            f"[Visualizer] HF embeddings computed: shape={embeddings.shape}"
+            f"[Visualizer] Reading {len(filepaths)} images from FO filepaths …"
         )
 
-        # Persist a brain run on the FO dataset
+        image_tensors = []
+        for f in filepaths:
+            img = cv2.imread(f, cv2.IMREAD_COLOR)            # BGR, uint8
+            img = cv2.resize(img, target_size)
+            img = img.astype(np.float32) / 255.0             # [0, 1]
+            img = img.transpose(2, 0, 1)                     # (C, H, W)
+            image_tensors.append(img)
+
+        # ── Batched inference ─────────────────────────────────────────────
+        batch_size = 128
+        all_embs = []
+        total_batches = (len(image_tensors) + batch_size - 1) // batch_size
+
+        with torch.no_grad():
+            for i in range(0, len(image_tensors), batch_size):
+                batch_np = np.stack(image_tensors[i : i + batch_size])
+                batch_tensor = torch.tensor(batch_np, device=device)
+                outputs = model(batch_tensor)
+
+                # Handle various output formats
+                if isinstance(outputs, torch.Tensor):
+                    embs = outputs
+                elif hasattr(outputs, "pooler_output") and outputs.pooler_output is not None:
+                    embs = outputs.pooler_output
+                elif hasattr(outputs, "last_hidden_state"):
+                    embs = outputs.last_hidden_state.mean(dim=1)
+                else:
+                    embs = outputs[0] if isinstance(outputs, (tuple, list)) else outputs
+
+                if len(embs.shape) > 2:
+                    embs = embs.mean(dim=list(range(2, len(embs.shape))))
+
+                all_embs.append(embs.cpu().numpy())
+
+                batch_num = i // batch_size + 1
+                if batch_num % 50 == 0 or batch_num == total_batches:
+                    self.logger.info(
+                        f"[Visualizer] Embedding progress: {batch_num}/{total_batches} batches"
+                    )
+
+        if not all_embs:
+            self.logger.info("[Visualizer] No embeddings computed.")
+            return
+
+        embeddings = np.concatenate(all_embs, axis=0)
+        self.in_memory_embeddings["hf_ground_truth"] = embeddings
+        self.logger.info(f"[Visualizer] Embeddings computed: shape={embeddings.shape}")
+
         self._compute_fo_visualization(
             embeddings=embeddings,
             brain_key="hf_ground_truth",
@@ -639,7 +527,13 @@ class Visualizer:
         method: str = None,
     ):
         """
-        Call fob.compute_visualization and save the result on fo_dataset.
+        Compute dimensionality reduction (UMAP/t-SNE) directly via
+        umap-learn / sklearn, then store the 2-D coordinates as a
+        FiftyOne brain run so they appear in the Embeddings panel.
+
+        We bypass fob.compute_visualization because it does not
+        reliably forward kwargs like ``metric`` to the underlying
+        UMAP implementation.
 
         Args:
             embeddings : (N, D) float array
@@ -651,24 +545,77 @@ class Visualizer:
 
         brain_key = self._sanitize_key(brain_key)
 
-        # Skip if we'd recompute an identical key
+        # Delete stale brain run so we always recompute with current embeddings
         if brain_key in self.fo_dataset.list_brain_runs():
             self.logger.info(
-                f"[Visualizer] Brain run '{brain_key}' already exists — skipping."
+                f"[Visualizer] Deleting stale brain run '{brain_key}' to recompute."
             )
-            return
+            self.fo_dataset.delete_brain_run(brain_key)
 
         extra_kwargs = self.embedding_params.get(method, {})
 
+        # ── Compute 2-D coordinates directly ────────────────────────────
+        if method == "umap":
+            import umap as umap_lib
+
+            umap_params = {
+                "n_components": 2,
+                "metric": "cosine",
+                "n_neighbors": 30,
+                "min_dist": 0.05,
+                "random_state": 42,
+            }
+            umap_params.update(extra_kwargs)
+
+            self.logger.info(
+                f"[Visualizer] Running UMAP directly (metric={umap_params['metric']}, "
+                f"n_neighbors={umap_params['n_neighbors']}, "
+                f"min_dist={umap_params['min_dist']}) …"
+            )
+            reducer = umap_lib.UMAP(**umap_params)
+            points = reducer.fit_transform(embeddings)
+
+        elif method == "tsne":
+            from sklearn.manifold import TSNE
+
+            tsne_params = {
+                "n_components": 2,
+                "metric": "cosine",
+                "random_state": 42,
+            }
+            tsne_params.update(extra_kwargs)
+            reducer = TSNE(**tsne_params)
+            points = reducer.fit_transform(embeddings)
+
+        else:
+            self.logger.warning(
+                f"[Visualizer] Unknown method '{method}' — "
+                f"falling back to fob.compute_visualization."
+            )
+            fob.compute_visualization(
+                self.fo_dataset,
+                embeddings=embeddings,
+                num_dims=2,
+                method=method,
+                brain_key=brain_key,
+                verbose=False,
+                seed=51,
+                **extra_kwargs,
+            )
+            self.fo_dataset.save()
+            self.logger.info(
+                f"[Visualizer] Brain run '{brain_key}' saved (method={method})."
+            )
+            return
+
+        # ── Store as FiftyOne brain run ──────────────────────────────────
+        # Use fob.compute_visualization with pre-computed points so that
+        # the brain panel picks them up correctly.
         fob.compute_visualization(
             self.fo_dataset,
-            embeddings=embeddings,
-            num_dims=2,
-            method=method,
+            points=points,
             brain_key=brain_key,
             verbose=False,
-            seed=51,
-            **extra_kwargs,
         )
         self.fo_dataset.save()
         self.logger.info(

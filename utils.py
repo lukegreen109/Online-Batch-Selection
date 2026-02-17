@@ -62,6 +62,10 @@ class custom_logger():
     def error(self, log_str):
         self.info(f"[ERROR] {log_str}")
 
+    def exception(self, log_str):
+        import traceback
+        self.info(f"[EXCEPTION] {log_str}\n{traceback.format_exc()}")
+
     def raise_error(self, error):
         prototype = '************* Error: {} *************'.format(str(error))
         self.info(prototype)

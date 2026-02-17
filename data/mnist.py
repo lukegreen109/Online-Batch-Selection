@@ -85,7 +85,7 @@ def MNIST(config, logger):
         transforms.Normalize(mean=mean, std=std)
     ])
 
-    use_fiftyone_dataloader = False if 'visualization' not in config else config['visualization']['use_fiftyone_dataloader']
+    use_fiftyone_dataloader = False if 'visualization' not in config else config['visualization'].get('use_fiftyone_dataloader', False)
     if not use_fiftyone_dataloader:
         dst_train = datasets.MNIST(config['dataset']['root'], train=True, download=True, transform=transform)
         dst_test = datasets.MNIST(config['dataset']['root'], train=False, download=True, transform=test_transform)
@@ -132,7 +132,7 @@ def MNIST_LT(config, logger):
         transforms.ToTensor(),
         transforms.Normalize(mean=mean, std=std)
     ])
-    use_fiftyone_dataloader = False if 'visualization' not in config else config['visualization']['use_fiftyone_dataloader']
+    use_fiftyone_dataloader = False if 'visualization' not in config else config['visualization'].get('use_fiftyone_dataloader', False)
     if not use_fiftyone_dataloader:
         dst_train = IMBALANCEMNIST(
             root=config['dataset']['root'], 

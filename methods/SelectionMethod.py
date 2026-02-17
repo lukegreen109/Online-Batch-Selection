@@ -386,7 +386,7 @@ class SelectionMethod(object):
                     ids = visualizer.fo_dataset.values("id")
                     
                     if len(ids) == len(losses):
-                        visualizer.fo_dataset.set_values(loss_field, dict(zip(ids, losses)))
+                        visualizer.fo_dataset.set_values(loss_field, dict(zip(ids, losses)), key_field="id")
                         visualizer.fo_dataset.save()
                         self.logger.info(f"Tagged '{loss_field}' on {len(losses)} samples.")
                     else:
