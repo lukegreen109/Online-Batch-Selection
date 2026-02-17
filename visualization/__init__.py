@@ -1,2 +1,0 @@
-from .Visualization import Visualizer
-from .splinecam_utils import visualize_with_splinecam

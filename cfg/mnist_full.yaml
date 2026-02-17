@@ -1,0 +1,68 @@
+output_dir: ./exp/mnist_full
+seed: 97
+
+methods:
+  - Uniform
+  - DivBS
+  - Full
+  - Bayesian
+  # RhoLoss is compatible with MNIST input dimensions
+  # - RhoLoss # Uncomment if RhoLoss is fully robust
+
+method_opt:
+  ratio: 0.1
+  balance: false
+  ratio_scheduler: constant
+  warmup_epochs: 2
+
+bayesian:
+  adaptive_alpha: false
+  alpha: 0.3
+  tau: 4
+  prior_precision: 10
+  ema_momentum: 0.99
+  num_effective_data: 1000
+  laplace_momentum: 0.99
+  n_f_samples: 256
+  clip_architecture: 'ViT-B/16'
+
+dataset:
+  name: MNIST
+  foz_name: mnist
+  root: ./_MNIST
+
+networks:
+  type: ResNet
+  params:
+    m_type: resnet18
+    num_classes: 10
+    in_channels: 1
+
+training_opt:
+  num_epochs: 20
+  num_data_workers: 4
+  batch_size: 128
+  test_batch_size: 512
+  loss_type: CrossEntropy
+  loss_params: {}
+  optimizer: SGD
+  optim_params: {lr: 0.01, momentum: 0.9, weight_decay: 0.0005}
+  scheduler: cosine
+  scheduler_params: {endlr: 0.0001, gamma: 0.1, step_size: 35, milestones: [10, 15]}
+  resume: null
+
+logger_opt:
+  print_iter: 100
+
+visualization:
+  enable: true
+  milestones: [0.0, 0.5, 1.0]
+  use_fiftyone: true
+  persistent: true
+  embedding_methods: [umap]
+  embedding_params:
+    umap:
+      n_components: 2
+      n_neighbors: 15
+      min_dist: 0.1
+      metric: euclidean

@@ -56,6 +56,12 @@ class custom_logger():
         with open(self.logger_path, "a") as f:
             f.write(self.get_local_time() + str(log_str) + '\n')
 
+    def warning(self, log_str):
+        self.info(f"[WARNING] {log_str}")
+
+    def error(self, log_str):
+        self.info(f"[ERROR] {log_str}")
+
     def raise_error(self, error):
         prototype = '************* Error: {} *************'.format(str(error))
         self.info(prototype)

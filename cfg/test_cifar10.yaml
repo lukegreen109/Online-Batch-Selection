@@ -1,0 +1,54 @@
+output_dir: ./exp/test_cifar10
+seed: 97
+
+methods:
+  - Uniform
+  - DivBS
+
+method_opt:
+  ratio: 0.1
+  balance: false
+  ratio_scheduler: constant
+  warmup_epochs: 0
+
+dataset:
+  name: CIFAR10
+  foz_name: cifar10
+  root: ./_CIFAR
+
+networks:
+  type: ResNet
+  params:
+    m_type: resnet18
+    num_classes: 10
+    in_channels: 3
+
+training_opt:
+  num_epochs: 1
+  num_steps: 100
+  num_data_workers: 4
+  batch_size: 128
+  test_batch_size: 512
+  loss_type: CrossEntropy
+  loss_params: {}
+  optimizer: SGD
+  optim_params: {lr: 0.1, momentum: 0.9, weight_decay: 0.0005}
+  scheduler: cosine
+  scheduler_params: {endlr: 0.0001, gamma: 0.1, step_size: 35, milestones: [120, 160]}
+  resume: null
+
+logger_opt:
+  print_iter: 10
+
+visualization:
+  enable: true
+  milestones: [0.0]
+  use_fiftyone: true
+  persistent: true
+  embedding_methods: [umap]
+  embedding_params:
+    umap:
+      n_components: 2
+      n_neighbors: 15
+      min_dist: 0.1
+      metric: euclidean

@@ -55,6 +55,7 @@ networks:
   params: 
     m_type: 'resnet18'
     num_classes: 10
+    in_channels: 3
 
 training_opt:
   num_epochs: 4
