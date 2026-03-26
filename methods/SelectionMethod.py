@@ -6,9 +6,9 @@ import numpy as np
 import time
 from .method_utils import *
 import data
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader
+import torch.nn.functional as F
 from ema_pytorch import EMA
-from collections import Counter
 
 
 
@@ -110,7 +110,8 @@ class SelectionMethod(object):
         self.need_features = False
 
         self.train_loader = DataLoader(self.train_dset, batch_size=self.batch_size, shuffle=True, num_workers=self.num_data_workers, pin_memory=True, drop_last=False)
-        
+        self.fixed_train_loader = DataLoader(self.train_dset, batch_size=512, shuffle=False, num_workers=self.num_data_workers, pin_memory=True, drop_last=False)
+
     def resume(self, resume_path):
         if os.path.isfile(resume_path):
             self.logger.info(("=> loading checkpoint '{}'".format(resume_path)))
@@ -141,11 +142,13 @@ class SelectionMethod(object):
         self.logger.info(f'Begin training for {self.method_name}...')
 
         # Log first epoch before training to confirm same initialization
-        self.log_statistics(epoch = self.start_epoch)
+        # self.log_statistics(epoch = self.start_epoch)
 
+        self.snapshots = []
+        self.snapshots.append(self.helper(self.total_step))
         for epoch in range(self.start_epoch+1, self.epochs+1):
-            list_of_train_idx = self.before_epoch(epoch)
-            self.train(epoch, list_of_train_idx)
+            self.before_epoch(epoch)
+            self.train(epoch)
             self.after_epoch(epoch)
             if self.num_steps is not None and self.total_step >= self.num_steps:
                 self.logger.info(f'Finish training for {self.method_name} because num_steps {self.num_steps} is reached')
@@ -161,11 +164,16 @@ class SelectionMethod(object):
     def before_epoch(self, epoch):
         # select samples for this epoch
         self.num_selected_noisy_indexes = 0
-        return np.arange(self.num_train_samples)
 
     def after_epoch(self, epoch):
-        self.log_statistics(epoch)
-        self.save_model(epoch)
+        if 5 <= epoch <= 25:
+            self.snapshots.append(self.helper(self.total_step))
+        elif 25 < epoch <= 65 and epoch % 4 == 0:
+            self.snapshots.append(self.helper(self.total_step))
+        elif epoch > 65 and epoch % 15 == 0 or (epoch == self.epochs-1):
+            self.snapshots.append(self.helper(self.total_step))
+        # self.log_statistics(epoch)
+        # self.save_model(epoch)
 
     def after_run(self):
         pass
@@ -174,12 +182,17 @@ class SelectionMethod(object):
         # online batch selection
         return inputs, targets, indexes
 
-    def after_batch(self, i, inputs, targets, indexes, outputs):
+    def after_batch(self, i, inputs, targets, indexes, outputs, epoch, total_batch):
+        self.total_step += 1
         self.ema_net.update()
         # record noisy points selected
         self.num_selected_noisy_indexes = self.num_selected_noisy_indexes + np.intersect1d(indexes, self.noisy_indices).size
 
-    def train(self, epoch, list_of_train_idx):
+        if epoch < 5 and i % (total_batch // 4) == 0:
+            self.snapshots.append(self.helper(self.total_step))
+
+
+    def train(self, epoch):
         # train for one epoch and record time taken
         total_batch = len(self.train_loader)
         epoch_begin_time = time.time()
@@ -197,12 +210,11 @@ class SelectionMethod(object):
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-            self.after_batch(i, selected_inputs, selected_targets, selected_indexes, selected_outputs.detach())
+            self.after_batch(i, selected_inputs, selected_targets, selected_indexes, selected_outputs.detach(), epoch, total_batch)
         
         now = time.time()
         self.time_this_epoch = now - epoch_begin_time
         self.total_time = now - self.run_begin_time
-        self.total_step = self.total_step + total_batch
         self.scheduler.step()
 
     def while_update(self, outputs, loss, targets, epoch, features, indexes, batch_idx, batch_size):
@@ -298,4 +310,41 @@ class SelectionMethod(object):
         acc = np.mean(all_preds == all_labels)
         ema_acc = np.mean(all_ema_preds == all_labels)
         return acc, avg_epoch_test_loss,ema_acc
+    
+
+    def helper(self, t):
+        model = self.model.module if hasattr(self.model, 'module') else self.model
+        model.eval()
+        start = time.time()
+        with torch.no_grad():
+            # train error
+            yh, f, e = [], [], []
+            for i, datas in enumerate(self.fixed_train_loader):
+                x, y = datas['input'].cuda(), datas['target'].cuda()
+                yh.append(F.log_softmax(model(x), dim=1))
+                f.append(-torch.gather(yh[-1], 1, y.view(-1, 1)))
+                e.append((y != torch.argmax(yh[-1], dim=1).long()).float())
+
+            # val error
+            yvh, fv, ev = [], [], []
+            for i, datas in enumerate(self.test_loader):
+                xv, yv = datas['input'].cuda(), datas['target'].cuda()
+                yvh.append(F.log_softmax(model(xv), dim=1))
+                fv.append(-torch.gather(yvh[-1], 1, yv.view(-1, 1)))
+                ev.append((yv != torch.argmax(yvh[-1], dim=1).long()).float())
+
+            ss = dict(yh=yh, f=f, e=e, yvh=yvh, fv=fv, ev=ev)
+            for k, _ in ss.items():
+                ss[k] = torch.cat(ss[k], dim=0).to('cpu')
+            f = ss['f'].mean()
+            acc = 100-ss['e'].mean()*100
+            fv = ss['fv'].mean()
+            accv = 100-ss['ev'].mean()*100
+            lr = self.optimizer.param_groups[0]['lr']
+            print('[%06d] f: %2.3f, acc: %2.2f, fv: %2.3f, accv: %2.2f, lr: %2.4f, time: %2.2f' %
+                  (t, f, acc, fv, accv, lr, time.time()-start))
+
+        model.train()
+        return ss
+    
 

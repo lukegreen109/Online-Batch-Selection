@@ -1,0 +1,4 @@
+networks:
+  type: Linear
+  params: 
+    m_type: 'linear'

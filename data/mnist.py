@@ -102,7 +102,7 @@ def MNIST(config, logger):
         'test_loader': test_loader,
         'num_train_samples': len(dst_train),
         "classes": mnist_classes,
-        "template": mnist_templates
+        "template": mnist_templates,
         'classes': mnist_classes,
         'template': mnist_templates
     }

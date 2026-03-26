@@ -32,6 +32,37 @@ CUDA_VISIBLE_DEVICES=0 uv run main.py --cfg cfg/cifar10.yaml --wandb_not_upload
 ```
 The `--wandb_not_upload` is optional and is used to keep wandb log files locally without uploading them to the wandb cloud. CUDA_VISIBLE_DEVICES specifies which GPU device to use. Multiple GPU devices are supported (i.e. CUDA_VISIBLE_DEVICES="0,2").
 
+## Save Labels Once
+
+You can generate and cache train/val labels once per dataset using [save_labels.py](save_labels.py). This writes:
+
+- `results/data/labels_{dataset}.p`
+
+General form:
+
+```bash
+uv run save_labels.py --data <dataset-config-yaml>
+```
+
+Dataset examples:
+
+```bash
+uv run save_labels.py --data configs/mnist/data/mnist.yaml
+uv run save_labels.py --data configs/fashionmnist/data/fashionmnist.yaml
+uv run save_labels.py --data configs/cifar10/data/cifar10.yaml
+uv run save_labels.py --data configs/cifar100/data/cifar100.yaml
+uv run save_labels.py --data configs/cifar3/data/cifar3.yaml
+uv run save_labels.py --data configs/tinyimagenet/data/tinyimagenet.yaml
+uv run save_labels.py --data configs/twomoons/data/twomoons.yaml
+uv run save_labels.py --data configs/makeblobs/data/makeblobs.yaml
+```
+
+Useful flags:
+
+- `--overwrite`: replace an existing labels file.
+- `--output <path>`: write to a custom path.
+- `--batch_size <int>` and `--num_workers <int>`: control export loader settings.
+
 ## Repository Structure
 
 The repository is organized as follows:

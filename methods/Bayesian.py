@@ -2,10 +2,13 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+import models
 
 from .SelectionMethod import SelectionMethod
-from models.BayesNet import CLIPZeroShotClassifier
 from models.BayesNet import KFCALLAWrapper
+from transformers import AutoImageProcessor, AutoModelForImageClassification
+from models.BayesNet import CLIPZeroShotClassifier
+import timm
 
 
 class Bayesian(SelectionMethod):
@@ -38,33 +41,64 @@ class Bayesian(SelectionMethod):
             num_effective_data=config["num_effective_data"],
             prior_precision=config["prior_precision"],
             n_f_samples=config["n_f_samples"],
+            input_dim=config["dataset"]["input_dim"],
             momentum=config["laplace_momentum"],
         )
         self.model = self.model.cuda()
 
-        # See SelectionMethod for data_info; need for clip classifier
-        self.template = self.data_info["template"]
-        self.classes = self.data_info["classes"]
+        # See SelectionMethod for data_info; need for teacher classifier
+        self.template = self.data_info.get("template", None)
+        self.classes = self.data_info.get("classes", None)
 
-        self.clip_clf = CLIPZeroShotClassifier(
-            self.classes,
-            self.template,
-            config["dataset"]["name"],
-            config["clip_architecture"],
-            tau = config["tau"],
-        )
-
-        self.clip_clf = self.clip_clf.cuda()
-        self.clip_clf.eval()
-        self.test_clip() # Validate CLIP classifier test accuracy
+        self.setup_teacher_model(config,logger)
+        self.test_teacher() # Validate teacher classifier test accuracy
 
         self.alpha = config["alpha"]
         self.adaptive_alpha = config["adaptive_alpha"]
 
         self.precompute_losses()
 
+    def setup_teacher_model(self, config, logger):
+        """Retrieve the teacher model from config for computing irreducible loss."""
+        teacher_model_path = config['teacher_model_path']
+        teacher_model_source = config['teacher_model_source']
+
+        if teacher_model_source == "clip":
+            self.teacher_model = CLIPZeroShotClassifier(
+                self.data_info["classes"],
+                self.data_info["template"],
+                config["dataset"]["name"],
+                config["clip"]["clip_architecture"],
+                tau = config["clip"]["tau"],
+            )
+
+        elif teacher_model_source == "timm":
+            # Load model directly
+            model = timm.create_model(teacher_model_path, pretrained=True)
+            self.teacher_model = model
+
+        elif teacher_model_source == "local_pretrained":
+            # Get specifications from method and data configs to create teacher model
+            teacher_model_type = config['local_pretrained']['type']
+            teacher_model_args = dict(config['local_pretrained']['params'])
+            teacher_model_args['in_channels'] = config['dataset']['in_channels']
+            teacher_model_args['num_classes'] = config['dataset']['num_classes']
+
+            try:
+                self.teacher_model = getattr(models, teacher_model_type)(**teacher_model_args)
+            except AttributeError:
+                raise ValueError(f"Unknown teacher model type: {teacher_model_type}")
+            # Load teacher model weights from path
+            self.teacher_model.load_state_dict(torch.load(teacher_model_path, map_location=self.device))
+        else:
+            raise ValueError("Teacher model type {teacher_model_source} not supported.")
+        
+        logger.info(f"Loading teacher model from {teacher_model_path}")
+        self.teacher_model.to(self.device)
+        self.teacher_model.eval()
+
     def precompute_losses(self):
-        """Precompute losses for the training dataset using the clip model."""
+        """Precompute losses for the training dataset using the teacher model."""
         losses_tensor = torch.zeros(self.train_dset.__len__())
 
         with torch.no_grad():
@@ -72,30 +106,30 @@ class Bayesian(SelectionMethod):
                 inputs = datas['input'].to(self.device)
                 targets = datas['target'].to(self.device)
                 indexes = datas['index']
-                outputs = self.clip_clf(inputs)
+                outputs = self.teacher_model(inputs)
                 loss = - F.cross_entropy(outputs, targets, reduction='none')
                 losses_tensor[indexes] = loss.cpu().float()
 
         # Attach the losses tensor directly to the dataset object
-        self.train_dset.clip_loss_cache = losses_tensor
-        self.logger.info(f"Cached clip losses for {len(losses_tensor)} samples in dataset.")
+        self.train_dset.teacher_loss_cache = losses_tensor
+        self.logger.info(f"Cached teacher losses for {len(losses_tensor)} samples in dataset.")
 
-    def test_clip(self):
-        self.logger.info('=====> Start CLIP Validation')
+    def test_teacher(self):
+        self.logger.info('=====> Start teacher Validation')
         all_preds = []
         all_labels = []
         with torch.no_grad():
             for i, datas in enumerate(self.test_loader):
                 inputs = datas['input'].cuda()
                 targets = datas['target'].cuda()
-                outputs = self.clip_clf(inputs)
+                outputs = self.teacher_model(inputs)
                 preds = torch.argmax(outputs, dim=1)
                 all_preds.append(preds.cpu().numpy())
                 all_labels.append(targets.cpu().numpy())
         all_preds = np.concatenate(all_preds)
         all_labels = np.concatenate(all_labels)
         acc = np.mean(all_preds == all_labels)
-        self.logger.info(f'=====> CLIP Test Accuracy: {acc:.4f}')
+        self.logger.info(f'=====> teacher Test Accuracy: {acc:.4f}')
 
     def get_ratio_per_epoch(self, epoch):
         if epoch < self.warmup_epochs:
@@ -136,13 +170,13 @@ class Bayesian(SelectionMethod):
             .view(f_samples.shape[0], f_samples.shape[1])
             .mean(1)
         )
-        clip_outputs = self.train_dset.clip_loss_cache[indexes].to(f_samples.device)
+        teacher_outputs = self.train_dset.teacher_loss_cache[indexes].to(f_samples.device)
         if self.adaptive_alpha:
             bayes_loss = self.criterion(outputs, targets).item()
-            clip_loss = self.criterion(clip_outputs, targets).item()
-            self.alpha = clip_loss / (bayes_loss + clip_loss)
+            teacher_loss = self.criterion(teacher_outputs, targets).item()
+            self.alpha = teacher_loss / (bayes_loss + teacher_loss)
 
-        second_term = clip_outputs
+        second_term = teacher_outputs
         third_term = -F.cross_entropy(f_samples.softmax(-1).mean(1).log(), targets, reduction="none")
         select_obj = self.alpha * first_term + (1 - self.alpha) * second_term - third_term
         _, index_selected = torch.topk(select_obj, number_to_select)

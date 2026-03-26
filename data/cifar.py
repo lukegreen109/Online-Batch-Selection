@@ -3,6 +3,28 @@ import torch
 import numpy as np
 import random
 
+cifar3_classes = ['dog','cat','bird',]
+cifar3_templates = [
+    'a photo of a {}.',
+    'a blurry photo of a {}.',
+    'a black and white photo of a {}.',
+    'a low contrast photo of a {}.',
+    'a high contrast photo of a {}.',
+    'a bad photo of a {}.',
+    'a good photo of a {}.',
+    'a photo of a small {}.',
+    'a photo of a big {}.',
+    'a photo of the {}.',
+    'a blurry photo of the {}.',
+    'a black and white photo of the {}.',
+    'a low contrast photo of the {}.',
+    'a high contrast photo of the {}.',
+    'a bad photo of the {}.',
+    'a good photo of the {}.',
+    'a photo of the small {}.',
+    'a photo of the big {}.',
+]
+
 cifar10_classes = ['airplane','automobile','bird','cat','deer','dog','frog','horse','ship','truck',]
 cifar10_templates = [
     'a photo of a {}.',
@@ -152,7 +174,8 @@ cifar100_templates = [
 class wrapped_dataset(torch.utils.data.Dataset):
     def __init__(self, dataset):
         self.dataset = dataset
-        self.targets = dataset.targets
+        # Some dataset wrappers (e.g., Subset) may not expose .targets
+        self.targets = getattr(dataset, 'targets', None)
     def __len__(self):
         return len(self.dataset)
     def __getitem__(self, index):
@@ -242,7 +265,68 @@ class IMBALANCECIFAR100(IMBALANCECIFAR10):
     }
     cls_num = 100
 
+def CIFAR3(config, logger):
+    im_size = (32, 32) if 'im_size' not in config['dataset'] else config['dataset']['im_size']
+    num_classes = 3
+    mean = [0.4914, 0.4822, 0.4465]
+    std = [0.2470, 0.2435, 0.2616]
 
+    transform = transforms.Compose(
+        [transforms.RandomCrop(im_size, padding=4, padding_mode="reflect"),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=mean, std=std)]
+        ) if im_size[0] == 32 else transforms.Compose(
+        [transforms.RandomResizedCrop(im_size, scale=(0.5, 1.0)),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=mean, std=std)]
+        )
+
+    test_transform =  transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=mean, std=std)]) if im_size[0] == 32 else transforms.Compose(
+        [transforms.Resize(im_size),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=mean, std=std)]
+        )
+    
+    dst_train = datasets.CIFAR10(
+        config['dataset']['root'], train=True, download=True, transform= transform
+    )
+    
+    
+    dst_test = datasets.CIFAR10(config['dataset']['root'], train=False, download=True, transform = test_transform)
+    
+    # Keep 3 CIFAR-10 classes: dog(5), cat(3), bird(2)
+    keep = [5, 3, 2]
+
+    # Filter train split in-place so we preserve CIFAR dataset fields (.data/.targets)
+    train_targets = np.array(dst_train.targets, dtype=np.int64)
+    train_mask = np.isin(train_targets, keep)
+    dst_train.data = dst_train.data[train_mask]
+    # Remap labels to contiguous [0, 1, 2] for safety
+    label_map = {old: new for new, old in enumerate(keep)}
+    dst_train.targets = [label_map[int(t)] for t in train_targets[train_mask]]
+
+    # Filter test split in-place with the same mapping
+    test_targets = np.array(dst_test.targets, dtype=np.int64)
+    test_mask = np.isin(test_targets, keep)
+    dst_test.data = dst_test.data[test_mask]
+    dst_test.targets = [label_map[int(t)] for t in test_targets[test_mask]]
+
+    config['training_opt']['test_batch_size'] = config['training_opt']['batch_size'] if 'test_batch_size' not in config['training_opt'] else config['training_opt']['test_batch_size']
+    test_loader = torch.utils.data.DataLoader(
+        wrapped_dataset(dst_test), batch_size = config['training_opt']['test_batch_size'],
+        shuffle=False, num_workers = config['training_opt']['num_data_workers'], pin_memory=True, drop_last=False
+    )
+
+    return {
+        'num_classes': num_classes,
+        'train_dset': wrapped_dataset(dst_train),
+        'test_loader': test_loader,
+        'num_train_samples': len(dst_train),
+        "classes": cifar3_classes,
+        "template": cifar3_templates
+    }
 
 def CIFAR10(config, logger):
     im_size = (32, 32) if 'im_size' not in config['dataset'] else config['dataset']['im_size']

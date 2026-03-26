@@ -24,7 +24,7 @@ class small_cnn(nn.Module):
         self.fc1_drop = nn.Dropout(dropout)
         self.fc2 = nn.Linear(128, 256)
         self.fc2_drop = nn.Dropout(dropout)
-        self.fc3 = nn.Linear(256, num_classes)
+        self.fc = nn.Linear(256, num_classes)
 
         self.pool = nn.MaxPool2d(2, 2)
 
@@ -40,7 +40,7 @@ class small_cnn(nn.Module):
         x = F.relu(self.fc1_drop(self.fc1(x)))
         x = F.relu(self.fc2_drop(self.fc2(x)))
         feat = x
-        x = self.fc3(x)
+        x = self.fc(x)
         
         if feature:
             return x, feat
@@ -58,5 +58,5 @@ class small_cnn(nn.Module):
             x = F.relu(self.fc1_drop(self.fc1(x)))
             x = F.relu(self.fc2_drop(self.fc2(x)))
             feat = x
-        x = self.fc3(x)
+        x = self.fc(feat)
         return x, feat

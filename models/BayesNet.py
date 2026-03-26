@@ -13,7 +13,7 @@ import data.data_utils.mean_std as mean_std
 
 
 class KFCALLAWrapper(nn.Module):
-    def __init__(self, net, num_effective_data, prior_precision, n_f_samples, last_layer_name="fc", momentum=0.99) :
+    def __init__(self, net, num_effective_data, prior_precision, n_f_samples, input_dim, last_layer_name="fc", momentum=0.99) :
         super(KFCALLAWrapper, self).__init__()
         self.net = net
         self.num_effective_data = num_effective_data
@@ -31,7 +31,7 @@ class KFCALLAWrapper(nn.Module):
 
         with torch.no_grad():
             self.net.training = False
-            out = self.net(torch.zeros(1, 3, 32, 32).cuda())
+            out = self.net(torch.zeros(input_dim).cuda())
             self.net.training = True
 
             feature_dim = self.input_features_of_last_layer.shape[-1]

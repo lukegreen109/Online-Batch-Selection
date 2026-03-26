@@ -38,14 +38,14 @@ class RhoLoss(SelectionMethod):
         self.reduce_dim = config['method_opt']['reduce_dim'] if 'reduce_dim' in config['method_opt'] else False
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
-        self.setup_holdout_model(config, logger)
+        self.setup_teacher_model(config, logger)
         self.precompute_losses()
 
         # starting with uniform selection generally helps performance
         self.uniform_epochs = config['method_opt']['uniform_epochs'] if 'uniform_epochs' in config['method_opt'] else 0
 
-    def setup_holdout_model(self, config, logger):
-        """Retrieve the holdout model from config for computing irreducible loss."""
+    def setup_teacher_model(self, config, logger):
+        """Retrieve the teacher model from config for computing irreducible loss."""
         teacher_model_path = config['teacher_model_path']
         teacher_model_source = config['teacher_model_source']
 
@@ -76,17 +76,17 @@ class RhoLoss(SelectionMethod):
                 raise ValueError(f"Unknown teacher model type: {teacher_model_type}")
             # Load teacher model weights from path
             self.teacher_model.load_state_dict(torch.load(teacher_model_path, map_location=self.device))
-            self.teacher_model.eval()
 
         else:
             raise ValueError("Teacher model type {teacher_model_source} not supported.")
         
-        logger.info(f"Loading holdout model from {teacher_model_path}")
+        logger.info(f"Loading teacher model from {teacher_model_path}")
         self.teacher_model.to(self.device)
+        self.teacher_model.eval()        
     
 
     def precompute_losses(self):
-        """Precompute irreducible losses for the training dataset using the holdout model."""
+        """Precompute irreducible losses for the training dataset using the teacher model."""
         self.teacher_model.eval()
         losses_tensor = torch.zeros(len(self.train_dset))
 

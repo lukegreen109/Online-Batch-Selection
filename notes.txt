@@ -1,0 +1,13 @@
+If I ever want to debug computational inefficiencies:
+
+from torch.profiler import profile, ProfilerActivity
+
+with profile(
+    activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+    record_shapes=False,
+    profile_memory=False,
+    with_stack=False,
+) as prof:
+
+torch.cuda.synchronize()
+print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=25))

@@ -8,6 +8,8 @@ import random
 import secrets
 from utils import custom_logger,random_str, get_date, re_nest_configs, get_configs
 import wandb
+import json
+
 
 import torch.multiprocessing as mp
 import methods
@@ -113,58 +115,80 @@ def main():
     if method not in methods.__all__:
         raise ValueError(f'Method {method} is not supported. Please check the methods.py file.')
 
-    # Check if run has already been executed
-    if os.path.exists(save_dir):
-        print(f'Skip {method} as output already exists.')
+    # # Check if run has already been executed
+    # if os.path.exists(save_dir):
+    #     print(f'Skip {method} as output already exists.')
+    # else:
+    # Create output directory
+    os.makedirs(save_dir, exist_ok=True)
+
+
+    # wandb_not_upload
+    if args.wandb_not_upload:
+        os.environ["WANDB_MODE"] = "dryrun"
     else:
-        # Create output directory
-        os.makedirs(save_dir, exist_ok=True)
+        os.environ["WANDB_MODE"] = "run"
+    
+    if args.log_file is None:
+        logger = custom_logger(save_dir)
+    else:
+        logger = custom_logger(save_dir, args.log_file)
+
+    logger.info('========================= Start Main =========================')
 
 
-        # wandb_not_upload
-        if args.wandb_not_upload:
-            os.environ["WANDB_MODE"] = "dryrun"
-        else:
-            os.environ["WANDB_MODE"] = "run"
-        
-        if args.log_file is None:
-            logger = custom_logger(save_dir)
-        else:
-            logger = custom_logger(save_dir, args.log_file)
-
-        logger.info('========================= Start Main =========================')
+    # save config file
+    logger.info('=====> Saving config file')
+    with open(os.path.join(save_dir, 'config.yaml'), 'w') as f:
+        yaml.dump(config, f, default_flow_style=False)
+    logger.info('=====> Config file saved')
 
 
-        # save config file
-        logger.info('=====> Saving config file')
-        with open(os.path.join(save_dir, 'config.yaml'), 'w') as f:
-            yaml.dump(config, f, default_flow_style=False)
-        logger.info('=====> Config file saved')
+    init_seeds(args.seed)
+    # logger.info(f'=====> Random seed initialized to {config["seed"]}')
+    logger.info(f'=====> Wandb initialized')
+    run = wandb.init(config=config,project="Efficient Selection with EMA")
+    re_nest_configs(run.config)
+    wandb.define_metric('acc', 'max')
+    run.name = method + '_' + config['save_dir'].split('/')[-2]
+
+    wandb_local_path = wandb.run.dir
+    # save wandb_local_path to wandb_local_path.txt
+    with open(os.path.join(save_dir, 'wandb_local_path.txt'), 'w') as f:
+        f.write(wandb_local_path)
+        f.close()
+
+    config['num_gpus'] = torch.cuda.device_count()
+    logger.info(f'=====> Number of GPUs: {config["num_gpus"]}')
+
+    Method = getattr(methods, method)(config, logger)
+    Method.run()
+
+    fn = json.dumps(
+    dict(bsel=config['method'],
+            seed=config['seed'],
+            model=config['networks']['type'],
+            opt=os.path.basename(args.optim).split('-')[0],
+            bs=config['training_opt']['batch_size'],
+            ratio=config['method_opt']['ratio'],
+            lr=config['training_opt']['optim_params']['lr'],
+            wd=config['training_opt']['optim_params']['weight_decay'])
+    ).replace(' ', '')
+    # print(fn)
+    root = f"/home/lgreen/projects/Online_BS/results/{config['dataset']['name']}/"
+    save_path = os.path.join(root, fn + ".p")
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    torch.save({"data": Method.snapshots, "configs": args}, save_path)
 
 
-        init_seeds(args.seed)
-        # logger.info(f'=====> Random seed initialized to {config["seed"]}')
-        logger.info(f'=====> Wandb initialized')
-        run = wandb.init(config=config,project="Preston_Sandbox")
-        re_nest_configs(run.config)
-        wandb.define_metric('acc', 'max')
-        run.name = method + '_' + config['save_dir'].split('/')[-2]
+    # teacher_dir = f'/home/lgreen/projects/Online_BS/models/teacher/{dset}.tar'
+    # if not os.path.exists(teacher_dir):
+    #     state = Method.model.module.state_dict() if hasattr(Method.model, 'module') else Method.model.state_dict()
+    #     torch.save(state, teacher_dir)
 
-        wandb_local_path = wandb.run.dir
-        # save wandb_local_path to wandb_local_path.txt
-        with open(os.path.join(save_dir, 'wandb_local_path.txt'), 'w') as f:
-            f.write(wandb_local_path)
-            f.close()
+    logger.info('========================= End Main =========================')
 
-        config['num_gpus'] = torch.cuda.device_count()
-        logger.info(f'=====> Number of GPUs: {config["num_gpus"]}')
-
-        Method = getattr(methods, method)(config, logger)
-        Method.run()
-
-        logger.info('========================= End Main =========================')
-
-        logger.wandb_finish()
+    logger.wandb_finish()
 
 
 

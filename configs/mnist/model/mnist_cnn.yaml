@@ -1,0 +1,5 @@
+networks:
+  type: MNIST_cnn
+  params:
+    m_type: 'mnist_cnn'
+    dropout: 0.25
