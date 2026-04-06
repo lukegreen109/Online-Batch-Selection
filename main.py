@@ -180,7 +180,7 @@ def main():
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     torch.save({"data": Method.snapshots, "configs": args}, save_path)
 
-
+    # dset = config['dataset']['name']
     # teacher_dir = f'/home/lgreen/projects/Online_BS/models/teacher/{dset}.tar'
     # if not os.path.exists(teacher_dir):
     #     state = Method.model.module.state_dict() if hasattr(Method.model, 'module') else Method.model.state_dict()

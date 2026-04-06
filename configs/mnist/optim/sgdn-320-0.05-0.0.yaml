@@ -1,5 +1,5 @@
 training_opt:
-  num_epochs: 200
+  num_epochs: 100
   # num_steps: 100000
   num_data_workers: 4
   batch_size: 320

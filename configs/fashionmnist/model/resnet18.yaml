@@ -1,4 +1,0 @@
-networks:
-  type: ResNet_torchvision
-  params: 
-    m_type: 'resnet18'

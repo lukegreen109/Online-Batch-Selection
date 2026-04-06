@@ -1,10 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torchvision.models as models
 
-def create_model(m_type='small_cnn', in_channels=3, num_classes=10, pretrained=False):
-    model = small_cnn(in_channels=in_channels, num_classes=num_classes)  # default model
+def create_model(m_type='small_cnn', in_channels=3, num_classes=10, pretrained=False, dropout=0):
+    model = small_cnn(in_channels=in_channels, num_classes=num_classes, dropout=dropout)
     return model
 
 class small_cnn(nn.Module):

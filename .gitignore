@@ -14,7 +14,6 @@ _MNIST/
 _CIFAR_N/
 
 # bash scripts
-run_all.sh
 run.sh
 
 # exp
@@ -29,3 +28,4 @@ wandb/
 
 results/
 runs/
+models/teacher

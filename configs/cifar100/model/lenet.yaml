@@ -1,0 +1,4 @@
+networks:
+  type: LeNet
+  params:
+    m_type: 'lenet'

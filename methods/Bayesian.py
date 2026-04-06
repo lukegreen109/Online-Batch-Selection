@@ -36,6 +36,8 @@ class Bayesian(SelectionMethod):
         )
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+        last_layer_name, _ = list(self.model.named_modules())[-1]
+
         self.model = KFCALLAWrapper(
             net=self.model,
             num_effective_data=config["num_effective_data"],
@@ -43,6 +45,7 @@ class Bayesian(SelectionMethod):
             n_f_samples=config["n_f_samples"],
             input_dim=config["dataset"]["input_dim"],
             momentum=config["laplace_momentum"],
+            last_layer_name=last_layer_name
         )
         self.model = self.model.cuda()
 
