@@ -1,7 +1,7 @@
 [project]
 name = "online-bs"
 version = "0.1.0"
-description = "Add your description here"
+description = "Exploring batch selection methods for accelerating the training of machine learning models."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -20,6 +20,8 @@ dependencies = [
     "requests>=2.32.4",
     "scikit-learn>=1.7.1",
     "scipy>=1.15.3",
+    "fiftyone>=0.25.0",
+    "opencv-python>=4.8.0",
     "timm>=1.0.24",
     "torch>=2.7.1",
     "torchvision>=0.22.1",
@@ -28,7 +30,19 @@ dependencies = [
     "umap-learn>=0.5.5",
     "wandb>=0.21.0",
     "wcwidth>=0.2.13",
+    "pytest>=9.0.3",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
 ]
 
 [tool.uv.sources]
 clip = { git = "https://github.com/openai/CLIP.git" }
+
+# CLIP is based on old architecture, which results in a setup bug
+# this fixes that bug, because it uses a version of setuptools
+# that fixes this issue
+[tool.uv]
+build-constraint-dependencies = ["setuptools<81"]

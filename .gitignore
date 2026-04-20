@@ -1,3 +1,9 @@
+# extra
+useful_commands.md
+core.*
+*.out
+slurm_logs/
+
 # python
 __pycache__/
 *.py[cod]

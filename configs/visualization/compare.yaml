@@ -1,0 +1,34 @@
+# configs/visualization/compare.yaml
+#
+# Visualization config for side-by-side method comparison.
+# Runs both UMAP and t-SNE, and keeps the FiftyOne dataset alive across
+# multiple SelectionMethod runs so all methods share one dataset.
+#
+# Usage (run each method separately, keeping the same dataset):
+#   uv run python main.py --method configs/method/uniform-0.1.yaml ... \
+#                         --vis configs/visualization/compare.yaml
+#   uv run python main.py --method configs/method/divbs-0.1.yaml  ... \
+#                         --vis configs/visualization/compare.yaml
+
+visualization:
+  enable: true
+
+  milestones: [0.5, 1.0]
+
+  embedding_methods:
+    - umap
+    - tsne
+
+  embedding_params:
+    umap:
+      n_neighbors: 30
+      min_dist: 0.05
+      metric: cosine
+    tsne:
+      perplexity: 30
+      metric: cosine
+
+  # Keep the shared dataset alive between method runs.
+  delete_stale_dataset: false
+
+  launch_app: false

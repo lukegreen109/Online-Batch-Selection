@@ -110,6 +110,25 @@ class SelectionMethod(object):
         self.need_features = False
 
         self.train_loader = DataLoader(self.train_dset, batch_size=self.batch_size, shuffle=True, num_workers=self.num_data_workers, pin_memory=True, drop_last=False)
+
+        # ── Optional FiftyOne Visualizer ─────────────────────────────────
+        self.visualizer = None
+        if config.get('visualization', {}).get('enable', False):
+            try:
+                from visualization import Visualizer
+                vis_loader = DataLoader(
+                    self.train_dset, batch_size=self.batch_size,
+                    shuffle=False, num_workers=self.num_data_workers,
+                    pin_memory=True, drop_last=False,
+                )
+                self.visualizer = Visualizer(
+                    config=config,
+                    logger=logger,
+                    data_loader=vis_loader,
+                    split="train",
+                )
+            except Exception as e:
+                logger.warning(f'[Visualizer] Init failed — visualization disabled: {e}')
         
     def resume(self, resume_path):
         if os.path.isfile(resume_path):
@@ -166,9 +185,24 @@ class SelectionMethod(object):
     def after_epoch(self, epoch):
         self.log_statistics(epoch)
         self.save_model(epoch)
+        if self.visualizer is not None:
+            vis_cfg = self.config.get('visualization', {})
+            milestones = vis_cfg.get('milestones', [])
+            milestone_epochs = {max(1, round(m * self.epochs)) for m in milestones}
+            milestone_epochs.add(self.epochs)
+            if epoch in milestone_epochs:
+                embeddings, labels = self.visualizer.compute_embeddings_from_model(
+                    model=self.model,
+                    data_loader=self.train_loader,
+                )
+                self.visualizer.add_run(epoch, embeddings, labels, self.method_name)
 
     def after_run(self):
-        pass
+        if self.visualizer is not None:
+            self.visualizer.compute_all_visualizations()
+            self.visualizer._export_snapshot()
+            if self.config.get('visualization', {}).get('launch_app', False):
+                self.visualizer.launch_app()
 
     def before_batch(self, i, inputs, targets, indexes, epoch):
         # online batch selection

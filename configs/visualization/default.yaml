@@ -1,0 +1,44 @@
+# configs/visualization/default.yaml
+#
+# Standard visualization config.  Pass with --vis to main.py:
+#   uv run python main.py --method ... --data ... --model ... --optim ... \
+#                         --vis configs/visualization/default.yaml
+#
+# The 'visualization' block is merged into the top-level config dict and
+# read by SelectionMethod (which creates a Visualizer when enable: true).
+#
+# embedding_methods accepts any name registered in
+# visualization/embedding_methods/ — built-in: "umap", "tsne".
+# Register custom methods with:
+#   from visualization.embedding_methods import register, EmbeddingMethod
+#   @register("mymethod")
+#   class MyMethod(EmbeddingMethod): ...
+
+visualization:
+  enable: true
+
+  # Fractional epoch checkpoints at which to extract and store embeddings.
+  # e.g. [0.25, 0.5, 0.75] → capture at 25%, 50%, 75%, and always at 100%.
+  milestones: [0.25, 0.5, 0.75]
+
+  # One or more registered embedding method names.
+  embedding_methods:
+    - umap
+
+  # Per-method keyword arguments forwarded to the method constructor.
+  embedding_params:
+    umap:
+      n_neighbors: 30
+      min_dist: 0.05
+      metric: cosine
+    tsne:
+      perplexity: 30
+      metric: cosine
+
+  # Set false to reuse an existing FiftyOne dataset across methods
+  # (useful when comparing methods that share the same dataset).
+  delete_stale_dataset: true
+
+  # Open the FiftyOne app at the end of training.
+  # Leave false for non-interactive / headless runs.
+  launch_app: false

@@ -82,10 +82,9 @@ def MNIST(config, logger):
         )
     
     dst_train = datasets.MNIST(
-        config['dataset']['root'], train=True, download=True, transform= transform
+        config['dataset']['root'], train=True, download=True, transform=transform
     )
-    
-    
+
     dst_test = datasets.MNIST(config['dataset']['root'], train=False, download=True, transform=test_transform)
     # class_names = dst_train.classes
     # dst_train.targets = torch.tensor(dst_train.targets, dtype=torch.long)

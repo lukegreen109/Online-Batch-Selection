@@ -73,6 +73,59 @@ The repository is organized as follows:
 2. Explore `methods/` to see specific batch selection implementations
 3. Check `cfg/` for experiment configuration options
 
+## Visualization
+
+Training runs can be visualized interactively in [FiftyOne](https://voxel51.com/) using the `visualization/` package. At milestone epochs, feature embeddings are extracted from the model and projected to 2D (UMAP, t-SNE, or any custom method), then stored as brain runs in a FiftyOne dataset.
+
+### Enabling visualization
+
+Pass a visualization config alongside your other configs:
+
+```bash
+uv run python main.py \
+  --method configs/method/uniform-0.1.yaml \
+  --data   configs/data/cifar10.yaml \
+  --model  configs/model/smallcnn.yaml \
+  --optim  configs/optim/sgdn-30-0.0025-0.0.yaml \
+  --vis    configs/visualization/default.yaml
+```
+
+`configs/visualization/default.yaml` captures embeddings at 25%, 50%, 75%, and 100% of training using UMAP. A `compare.yaml` variant runs both UMAP and t-SNE and is designed for comparing multiple methods on the same dataset.
+
+After training completes, a snapshot is saved to `exp/<dataset>/<run>/visualization_snapshots/`. Use `manage_viz.py` to reload and explore it:
+
+```bash
+uv run python visualization/manage_viz.py --list-snapshots
+uv run python visualization/manage_viz.py --load-snapshot <name>
+```
+
+### Custom embedding methods
+
+Any 2D reduction algorithm can be plugged in by subclassing `EmbeddingMethod` and registering it with `@register`:
+
+```python
+from visualization.embedding_methods import register, EmbeddingMethod
+
+@register("pca")
+class PCAMethod(EmbeddingMethod):
+    def __init__(self, n_components=2, **kwargs):
+        from sklearn.decomposition import PCA
+        self._r = PCA(n_components=n_components)
+
+    def fit_transform(self, embeddings):
+        return self._r.fit_transform(embeddings)
+```
+
+Then reference it by name in the config (`embedding_methods: ["pca"]`). Built-in methods are `"umap"` and `"tsne"`.
+
+### Tests
+
+```bash
+uv run pytest tests/test_visualization.py -v -s
+```
+
+The tests use 300 real MNIST samples (auto-downloaded) and run fully on CPU.
+
 ## Development
 
 ### Managing Dependencies

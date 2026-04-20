@@ -1,0 +1,6 @@
+slurm:
+  account: bhb35
+  mem:     32G
+  time:    "08:00:00"
+  output:  slurm_logs/%j_%x.out
+  error:   slurm_logs/%j_%x.err

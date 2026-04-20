@@ -1,0 +1,31 @@
+# configs/visualization/smoke-test.yaml
+#
+# Headless visualization config for smoke-testing on a supercomputer.
+# No app is launched — the FiftyOne dataset and UMAP embeddings are saved
+# to disk so you can open them locally later with:
+#
+#   python visualization/manage_viz.py --load-snapshot <path-to-_fo_export-dir>
+#
+# If the FiftyOne zoo dataset can't be downloaded (no internet), the
+# Visualizer automatically falls back to populating from the dataloader.
+
+visualization:
+  enable: true
+
+  # With only 3 epochs, capture at the midpoint and the final epoch.
+  milestones: [0.5]
+
+  embedding_methods:
+    - umap
+
+  embedding_params:
+    umap:
+      n_neighbors: 15
+      min_dist: 0.1
+      metric: cosine
+
+  delete_stale_dataset: true
+
+  # MUST stay false on a headless supercomputer node — the session is saved
+  # to disk instead and can be opened manually later.
+  launch_app: false

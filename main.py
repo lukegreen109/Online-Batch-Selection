@@ -53,8 +53,11 @@ def main():
     parser.add_argument('--notes', type=str,
                         default=None, 
                         help='Notes for the experiment.')
-    parser.add_argument('--wandb_not_upload', action='store_true', 
+    parser.add_argument('--wandb_not_upload', action='store_true',
                         help='Do not upload the result to wandb.')
+    parser.add_argument('--vis', type=str,
+                        default=None,
+                        help='visualization config (e.g. configs/visualization/default.yaml)')
 
     args = parser.parse_args()
 
@@ -66,6 +69,10 @@ def main():
     model_config = get_configs(args.model)
     optim_config = get_configs(args.optim)
     config = {**method_config, **data_config, **model_config, **optim_config} # combine into single config
+    if args.vis is not None:
+        vis_config = get_configs(args.vis)
+        config = {**config, **vis_config}
+        print(f'=====> Visualization config loaded from: {args.vis}')
     config['seed'] = args.seed # add seed to config
     print('=====> Config files loaded.')
 
