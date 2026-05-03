@@ -6,3 +6,4 @@ from .MNIST_cnn import create_model as MNIST_cnn
 from .Small_linear import create_model as Small_linear
 from .Simple_fc import create_model as Simple_fc
 from .Linear import create_model as Linear
+from .TwoLayer import create_model as TwoLayer

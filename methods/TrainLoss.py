@@ -37,12 +37,14 @@ class TrainLoss(SelectionMethod):
         else:
             raise NotImplementedError
 
-    def selection(self, inputs, targets, selected_num_samples):
+    def trainloss_selection(self, inputs, targets, number_to_select):
+        self.model.eval()
         with torch.no_grad():
-            outputs = self.model(inputs)
-            losses = F.cross_entropy(outputs, targets, reduction = 'none')
-        _, indices = torch.sort(losses, descending = True)
-        return indices[:selected_num_samples]
+            losses = F.cross_entropy(self.model(inputs), targets, reduction = 'none')
+            _, index_selected = torch.topk(losses, k=number_to_select, largest=True, sorted=False)
+
+        self.model.train()
+        return index_selected.cpu().numpy()
         
     def before_batch(self, i, inputs, targets, indexes, epoch):
         ratio = self.get_ratio_per_epoch(epoch)
@@ -54,10 +56,9 @@ class TrainLoss(SelectionMethod):
             if i == 0:
                 self.logger.info(f'balance: {self.balance}')
                 self.logger.info('selecting samples for epoch {}, ratio {}'.format(epoch, ratio))
-        selected_num_samples = int(inputs.shape[0] * ratio)
-        indices = self.selection(inputs, targets, selected_num_samples)
+        number_to_select = int(inputs.shape[0] * ratio)
+        indices = self.selection(inputs, targets, number_to_select)
         inputs = inputs[indices]
         targets = targets[indices]
-        indices = indices.to(indexes.device)
         indexes = indexes[indices]
         return inputs, targets, indexes

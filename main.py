@@ -147,7 +147,7 @@ def main():
     init_seeds(args.seed)
     # logger.info(f'=====> Random seed initialized to {config["seed"]}')
     logger.info(f'=====> Wandb initialized')
-    run = wandb.init(config=config,project="Efficient Selection with EMA")
+    run = wandb.init(config=config,project="RhoLoss Diagnostics")
     re_nest_configs(run.config)
     wandb.define_metric('acc', 'max')
     run.name = method + '_' + config['save_dir'].split('/')[-2]
@@ -164,21 +164,21 @@ def main():
     Method = getattr(methods, method)(config, logger)
     Method.run()
 
-    fn = json.dumps(
-    dict(bsel=config['method'],
-            seed=config['seed'],
-            model=config['networks']['type'],
-            opt=os.path.basename(args.optim).split('-')[0],
-            bs=config['training_opt']['batch_size'],
-            ratio=config['method_opt']['ratio'],
-            lr=config['training_opt']['optim_params']['lr'],
-            wd=config['training_opt']['optim_params']['weight_decay'])
-    ).replace(' ', '')
+    # fn = json.dumps(
+    # dict(bsel=config['method'],
+    #         seed=config['seed'],
+    #         model=config['networks']['type'],
+    #         opt=os.path.basename(args.optim).split('-')[0],
+    #         bs=config['training_opt']['batch_size'],
+    #         ratio=config['method_opt']['ratio'],
+    #         lr=config['training_opt']['optim_params']['lr'],
+    #         wd=config['training_opt']['optim_params']['weight_decay'])
+    # ).replace(' ', '')
     # print(fn)
-    root = f"/home/lgreen/projects/Online_BS/results/{config['dataset']['name']}/"
-    save_path = os.path.join(root, fn + ".p")
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    torch.save({"data": Method.snapshots, "configs": args}, save_path)
+    # root = f"/home/lgreen/projects/Online_BS/results/{config['dataset']['name']}/"
+    # save_path = os.path.join(root, fn + ".p")
+    # os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    # torch.save({"data": Method.snapshots, "configs": args}, save_path)
 
     # dset = config['dataset']['name']
     # teacher_dir = f'/home/lgreen/projects/Online_BS/models/teacher/{dset}.tar'

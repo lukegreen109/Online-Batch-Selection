@@ -1,0 +1,15 @@
+dataset:
+  name: Teacher_Generated
+  generating_teacher_model_path: /home/lgreen/projects/Online_BS/models/teacher/teacher_generating.pth
+  networks:
+    type: TwoLayer
+    params: 
+      m_type: 'twolayer'
+  # Synthetic dataset; no root needed
+  n_samples: 1000
+  test_size: 0.2
+  num_classes: 4
+  input_dim: [1,16]
+  tau: 3
+  # For non-image models you can treat this as input dimension
+  in_channels: 16

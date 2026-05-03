@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 def create_model(m_type='linear', input_dim=10, num_classes=10, in_channels=1, pretrained=False):
-    model = Linear(input_dim=10, num_classes=num_classes)  # default model
+    model = Linear(input_dim=input_dim, num_classes=num_classes)  # default model
     return model
 
 class Linear(nn.Module):

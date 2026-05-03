@@ -108,7 +108,7 @@ class GradNormIS(SelectionMethod):
             # Update tau threshold to determine if we should IS or Uniform select
             self.tau = self.a_tau * self.tau + (1 - self.a_tau) * ((1 - (1 / (grad_norm ** 2).sum()) * torch.norm((grad_norm - uniform)) ** 2) ** -1/2)
             self.logger.wandb_log({"tau": self.tau, "tauth": tau_th})
-            self.after_batch(i,inputs, targets, indexes,outputs.detach())
+            self._record_selected_points(epoch, indexes)
             self.num_selected_noisy_indexes += np.intersect1d(indexes.cpu().numpy(), self.noisy_indices.cpu().numpy()).size
             if i % self.config['logger_opt']['print_iter'] == 0:
                 # train acc

@@ -55,11 +55,11 @@ class Bayesian(SelectionMethod):
 
         self.setup_teacher_model(config,logger)
         self.test_teacher() # Validate teacher classifier test accuracy
+        self.precompute_losses()
 
         self.alpha = config["alpha"]
         self.adaptive_alpha = config["adaptive_alpha"]
 
-        self.precompute_losses()
 
     def setup_teacher_model(self, config, logger):
         """Retrieve the teacher model from config for computing irreducible loss."""
@@ -182,7 +182,7 @@ class Bayesian(SelectionMethod):
         second_term = teacher_outputs
         third_term = -F.cross_entropy(f_samples.softmax(-1).mean(1).log(), targets, reduction="none")
         select_obj = self.alpha * first_term + (1 - self.alpha) * second_term - third_term
-        _, index_selected = torch.topk(select_obj, number_to_select)
+        _, index_selected = torch.topk(select_obj, k=number_to_select, largest=True, sorted=False)
         return index_selected.cpu().numpy()
 
     def before_batch(self, i, inputs, targets, indexes, epoch):

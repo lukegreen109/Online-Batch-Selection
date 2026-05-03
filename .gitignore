@@ -29,3 +29,5 @@ wandb/
 results/
 runs/
 models/teacher
+selected_points/
+scripts/

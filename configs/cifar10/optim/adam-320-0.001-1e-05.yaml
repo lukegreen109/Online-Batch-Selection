@@ -13,3 +13,5 @@ training_opt:
 
   loss_type: CrossEntropy
   loss_params: {}
+
+  diagnostics_layers: ['fc1','fc2']

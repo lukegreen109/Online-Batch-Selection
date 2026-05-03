@@ -3,3 +3,4 @@ from .mnist import MNIST, FashionMNIST
 from .tinyimagenet import TinyImageNet
 from .twomoons import TwoMoons
 from .makeblobs import MakeBlobs
+from .teacher_generated import Teacher_Generated

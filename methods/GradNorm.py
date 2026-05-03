@@ -65,12 +65,11 @@ class GradNorm(SelectionMethod):
             if i == 0:
                 self.logger.info(f'balance: {self.balance}')
                 self.logger.info('selecting samples for epoch {}, ratio {}'.format(epoch, ratio))
-        grad_mean, grad = self.calc_grad(inputs, targets, indexes)
+        _, grad = self.calc_grad(inputs, targets, indexes)
         grad_norm = torch.norm(grad, dim=1)
-        k = int(ratio * len(inputs))
-        k = max(1, min(k, len(inputs)))  # at least 1, at most batch size
-        _, indices = torch.topk(grad_norm, k)
-        indices = indices.cpu()
+        number_to_select = int(inputs.shape[0] * ratio)
+        _, index_selected = torch.topk(grad_norm, k=number_to_select, largest=True, sorted=False)
+        indices = index_selected.cpu().numpy()
         inputs = inputs[indices]
         targets = targets[indices]
         indexes = indexes[indices]

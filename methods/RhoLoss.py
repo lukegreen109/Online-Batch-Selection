@@ -40,6 +40,7 @@ class RhoLoss(SelectionMethod):
         
         self.setup_teacher_model(config, logger)
         self.precompute_losses()
+        self.test_teacher() # Validate teacher classifier test accuracy
 
         # starting with uniform selection generally helps performance
         self.uniform_epochs = config['method_opt']['uniform_epochs'] if 'uniform_epochs' in config['method_opt'] else 0
@@ -103,6 +104,23 @@ class RhoLoss(SelectionMethod):
         self.train_dset.irreducible_loss_cache = losses_tensor
         self.logger.info(f"Cached irreducible losses for {len(losses_tensor)} samples in dataset.")
 
+    def test_teacher(self):
+        self.logger.info('=====> Start teacher Validation')
+        all_preds = []
+        all_labels = []
+        with torch.no_grad():
+            for i, datas in enumerate(self.test_loader):
+                inputs = datas['input'].cuda()
+                targets = datas['target'].cuda()
+                outputs = self.teacher_model(inputs)
+                preds = torch.argmax(outputs, dim=1)
+                all_preds.append(preds.cpu().numpy())
+                all_labels.append(targets.cpu().numpy())
+        all_preds = np.concatenate(all_preds)
+        all_labels = np.concatenate(all_labels)
+        acc = np.mean(all_preds == all_labels)
+        self.logger.info(f'=====> teacher Test Accuracy: {acc:.4f}')
+
     def get_ratio_per_epoch(self, epoch):
         if epoch < self.warmup_epochs:
             self.logger.info('warming up')
@@ -128,7 +146,7 @@ class RhoLoss(SelectionMethod):
         else:
             raise NotImplementedError
 
-    def reducible_loss_selection(self, inputs, targets, indexes, selected_num_samples, epoch):
+    def reducible_loss_selection(self, inputs, targets, indexes, number_to_select, epoch):
         """Select sub-batch with highest reducible loss.
         Args:
             inputs (torch.Tensor): Input data for the current batch.
@@ -146,16 +164,16 @@ class RhoLoss(SelectionMethod):
         reducible_loss = total_loss - irreducible_loss
 
         # Select samples with highest reducible loss
-        _, indices = torch.topk(reducible_loss, selected_num_samples, largest=True, sorted=False)
+        _, index_selected = torch.topk(reducible_loss, k=number_to_select, largest=True, sorted=False)
         
         # Override with uniform selection if specified
         if epoch < self.uniform_epochs:
             self.logger.info('Uniform selection')
-            indices = torch.randperm(len(inputs))[:selected_num_samples]
+            index_selected = torch.randperm(len(inputs))[:number_to_select]
         
         # Return to train mode and return selected indices
         self.model.train()
-        return indices.cpu().numpy()
+        return index_selected.cpu().numpy()
 
     def before_batch(self, i, inputs, targets, indexes, epoch):
         """Prepare the batch for training by selecting samples based on reducible loss.
@@ -180,8 +198,8 @@ class RhoLoss(SelectionMethod):
                 self.logger.info('selecting samples for epoch {}, ratio {}'.format(epoch, ratio))
 
         # Get indices based on reducible loss
-        selected_num_samples = max(1, int(inputs.shape[0] * ratio))
-        indices = self.reducible_loss_selection(inputs, targets, indexes, selected_num_samples, epoch)
+        number_to_select = max(1, int(inputs.shape[0] * ratio))
+        indices = self.reducible_loss_selection(inputs, targets, indexes, number_to_select, epoch)
         inputs = inputs[indices]
         targets = targets[indices]
         indexes = indexes[indices]

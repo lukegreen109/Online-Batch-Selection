@@ -73,7 +73,7 @@ class SelectionMethod(object):
         self.test_loader = self.data_info['test_loader']
         self.num_train_samples = self.data_info['num_train_samples']
 
-        if config['dataset']['noise'] == True:
+        if config['dataset'].get('noise', False) is True:
             self.noise == True
             all_dataset = self.train_dset
             all_dataset = all_dataset.dataset
@@ -108,9 +108,71 @@ class SelectionMethod(object):
 
         self.criterion = create_criterion(config, logger)
         self.need_features = False
+        self.wandb_histogram_max_points = self.training_opt.get('wandb_histogram_max_points', 200000)
+        self.diagnostics_layers = self.training_opt.get('diagnostics_layers', [])
+        self.diagnostics_logger = DiagnosticsLogger(
+            logger=self.logger,
+            num_classes=self.num_classes,
+            criterion=self.criterion,
+            histogram_max_points=self.wandb_histogram_max_points,
+            lr_max_iter=self.training_opt.get('diagnostics_lr_max_iter', 300),
+            ntk_enabled=self.training_opt.get('diagnostics_ntk_enabled', True),
+            ntk_max_samples=self.training_opt.get('diagnostics_ntk_max_samples', 1000),
+            ntk_top_k=self.training_opt.get('diagnostics_ntk_top_k', 10),
+        )
 
         self.train_loader = DataLoader(self.train_dset, batch_size=self.batch_size, shuffle=True, num_workers=self.num_data_workers, pin_memory=True, drop_last=False)
         self.fixed_train_loader = DataLoader(self.train_dset, batch_size=512, shuffle=False, num_workers=self.num_data_workers, pin_memory=True, drop_last=False)
+        self._initialize_selected_points_tracking()
+
+    def _initialize_selected_points_tracking(self):
+        num_tracking_epochs = self.epochs
+        if num_tracking_epochs is None:
+            num_tracking_epochs = int(np.ceil(self.num_steps / max(len(self.train_loader), 1)))
+
+        self.selected_points_by_epoch = np.zeros(
+            (num_tracking_epochs, self.num_train_samples),
+            dtype=np.uint8,
+        )
+        model_name = self.config['networks']['params'].get('m_type', self.config['networks']['type'])
+        dataset_name = self.config['dataset']['name']
+        seed = self.config['seed']
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        self.selected_points_dir = os.path.join(project_root, 'selected_points')
+        self.selected_points_path = os.path.join(
+            self.selected_points_dir,
+            f'{dataset_name}_{model_name}_{seed}.npy',
+        )
+
+    def _record_selected_points(self, epoch, indexes):
+        if epoch is None:
+            return
+
+        epoch_idx = int(epoch) - 1
+        if epoch_idx < 0 or epoch_idx >= self.selected_points_by_epoch.shape[0]:
+            return
+
+        if isinstance(indexes, torch.Tensor):
+            selected_indexes = indexes.detach().cpu().numpy()
+        else:
+            selected_indexes = np.asarray(indexes)
+
+        selected_indexes = np.asarray(selected_indexes, dtype=np.int64).reshape(-1)
+        if selected_indexes.size == 0:
+            return
+
+        valid_mask = (selected_indexes >= 0) & (selected_indexes < self.num_train_samples)
+        if not np.all(valid_mask):
+            selected_indexes = selected_indexes[valid_mask]
+        if selected_indexes.size == 0:
+            return
+
+        self.selected_points_by_epoch[epoch_idx, selected_indexes] = 1
+
+    def _save_selected_points(self):
+        os.makedirs(self.selected_points_dir, exist_ok=True)
+        np.save(self.selected_points_path, self.selected_points_by_epoch)
+        self.logger.info(f'Saved selected points array to {self.selected_points_path}')
 
     def resume(self, resume_path):
         if os.path.isfile(resume_path):
@@ -146,6 +208,7 @@ class SelectionMethod(object):
 
         self.snapshots = []
         self.snapshots.append(self.helper(self.total_step))
+        self.comput_diagnostics(trigger='run_start')
         for epoch in range(self.start_epoch+1, self.epochs+1):
             self.before_epoch(epoch)
             self.train(epoch)
@@ -168,15 +231,18 @@ class SelectionMethod(object):
     def after_epoch(self, epoch):
         if 5 <= epoch <= 25:
             self.snapshots.append(self.helper(self.total_step))
+            self.comput_diagnostics(trigger='epoch_interval')
         elif 25 < epoch <= 65 and epoch % 4 == 0:
             self.snapshots.append(self.helper(self.total_step))
+            self.comput_diagnostics(trigger='epoch_interval')
         elif epoch > 65 and epoch % 15 == 0 or (epoch == self.epochs-1):
             self.snapshots.append(self.helper(self.total_step))
+            self.comput_diagnostics(trigger='epoch_interval')
         # self.log_statistics(epoch)
         # self.save_model(epoch)
 
     def after_run(self):
-        pass
+        self._save_selected_points()
 
     def before_batch(self, i, inputs, targets, indexes, epoch):
         # online batch selection
@@ -185,11 +251,26 @@ class SelectionMethod(object):
     def after_batch(self, i, inputs, targets, indexes, outputs, epoch, total_batch):
         self.total_step += 1
         self.ema_net.update()
+        self._record_selected_points(epoch, indexes)
         # record noisy points selected
         self.num_selected_noisy_indexes = self.num_selected_noisy_indexes + np.intersect1d(indexes, self.noisy_indices).size
 
         if epoch < 5 and i % (total_batch // 4) == 0:
             self.snapshots.append(self.helper(self.total_step))
+            self.comput_diagnostics(trigger='early_epoch_batch_interval')
+
+    def comput_diagnostics(self, trigger):
+        model = self.model.module if hasattr(self.model, 'module') else self.model
+        device = next(model.parameters()).device
+        self.diagnostics_logger.log_diagnostics(
+            model=model,
+            trigger=trigger,
+            total_step=self.total_step,
+            device=device,
+            fixed_train_loader=self.fixed_train_loader,
+            test_loader=self.test_loader,
+            layer_names=self.diagnostics_layers,
+        )
 
 
     def train(self, epoch):
