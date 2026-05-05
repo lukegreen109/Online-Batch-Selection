@@ -1,8 +1,8 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
 
+from .SelectionMethod import BatchInfo
 from .SelectionMethod import SelectionMethod
 from models.BayesNet import CLIPZeroShotClassifier
 from models.BayesNet import KFCALLAWrapper
@@ -51,12 +51,12 @@ class Bayesian(SelectionMethod):
             self.template,
             config["dataset"]["name"],
             config["clip_architecture"],
-            tau = config["tau"],
+            tau=config["tau"],
         )
 
         self.clip_clf = self.clip_clf.cuda()
         self.clip_clf.eval()
-        self.test_clip() # Validate CLIP classifier test accuracy
+        self.test_clip()  # Validate CLIP classifier test accuracy
 
         self.alpha = config["alpha"]
         self.adaptive_alpha = config["adaptive_alpha"]
@@ -69,25 +69,27 @@ class Bayesian(SelectionMethod):
 
         with torch.no_grad():
             for datas in self.train_loader:
-                inputs = datas['input'].to(self.device)
-                targets = datas['target'].to(self.device)
-                indexes = datas['index']
+                inputs = datas["input"].to(self.device)
+                targets = datas["target"].to(self.device)
+                indexes = datas["index"]
                 outputs = self.clip_clf(inputs)
-                loss = - F.cross_entropy(outputs, targets, reduction='none')
+                loss = -F.cross_entropy(outputs, targets, reduction="none")
                 losses_tensor[indexes] = loss.cpu().float()
 
         # Attach the losses tensor directly to the dataset object
         self.train_dset.clip_loss_cache = losses_tensor
-        self.logger.info(f"Cached clip losses for {len(losses_tensor)} samples in dataset.")
+        self.logger.info(
+            f"Cached clip losses for {len(losses_tensor)} samples in dataset."
+        )
 
     def test_clip(self):
-        self.logger.info('=====> Start CLIP Validation')
+        self.logger.info("=====> Start CLIP Validation")
         all_preds = []
         all_labels = []
         with torch.no_grad():
             for i, datas in enumerate(self.test_loader):
-                inputs = datas['input'].cuda()
-                targets = datas['target'].cuda()
+                inputs = datas["input"].cuda()
+                targets = datas["target"].cuda()
                 outputs = self.clip_clf(inputs)
                 preds = torch.argmax(outputs, dim=1)
                 all_preds.append(preds.cpu().numpy())
@@ -95,7 +97,7 @@ class Bayesian(SelectionMethod):
         all_preds = np.concatenate(all_preds)
         all_labels = np.concatenate(all_labels)
         acc = np.mean(all_preds == all_labels)
-        self.logger.info(f'=====> CLIP Test Accuracy: {acc:.4f}')
+        self.logger.info(f"=====> CLIP Test Accuracy: {acc:.4f}")
 
     def get_ratio_per_epoch(self, epoch):
         if epoch < self.warmup_epochs:
@@ -122,7 +124,7 @@ class Bayesian(SelectionMethod):
         else:
             raise NotImplementedError
 
-    def bayesian_selection(self, inputs, targets, indexes, number_to_select):        
+    def bayesian_selection(self, inputs, targets, indexes, number_to_select):
         f_samples, outputs, stds, L_U_T_inverse = self.model(
             inputs, selection_pass=True
         )
@@ -143,8 +145,12 @@ class Bayesian(SelectionMethod):
             self.alpha = clip_loss / (bayes_loss + clip_loss)
 
         second_term = clip_outputs
-        third_term = -F.cross_entropy(f_samples.softmax(-1).mean(1).log(), targets, reduction="none")
-        select_obj = self.alpha * first_term + (1 - self.alpha) * second_term - third_term
+        third_term = -F.cross_entropy(
+            f_samples.softmax(-1).mean(1).log(), targets, reduction="none"
+        )
+        select_obj = (
+            self.alpha * first_term + (1 - self.alpha) * second_term - third_term
+        )
         _, index_selected = torch.topk(select_obj, number_to_select)
         return index_selected.cpu().numpy()
 
@@ -164,11 +170,13 @@ class Bayesian(SelectionMethod):
 
         self.model.eval()
         with torch.no_grad():
-            indices = self.bayesian_selection(inputs, targets, indexes, number_to_select)
+            indices = self.bayesian_selection(
+                inputs, targets, indexes, number_to_select
+            )
         self.model.train()
 
         inputs = inputs[indices]
         targets = targets[indices]
         indexes = indexes[indices]
 
-        return inputs, targets, indexes
+        return BatchInfo(inputs, targets, indexes)

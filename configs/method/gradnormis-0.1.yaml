@@ -1,0 +1,19 @@
+method: GradNormIS
+method_opt:
+  balance: false
+  ratio: 0.1
+
+  # optional — defaults shown below
+  ratio_scheduler: constant
+  warmup_epochs: 0
+  reduce_dim: false
+
+  # If this is set to true, allows GradNormIS to decide at each epoch if it's
+  # not worth doing importance sampling because the variance of the gradients
+  # cannot be sufficiently reduced.
+  uniform_fallback: false
+  uniform_fallback_opt:
+    a_tau: 0.5
+
+logger_opt:
+  print_iter: 5

@@ -1,0 +1,9 @@
+method: GradNorm
+method_opt:
+  balance: false
+  ratio: 0.1
+
+  # optional — defaults shown below
+  ratio_scheduler: constant
+  warmup_epochs: 0
+  reduce_dim: false
