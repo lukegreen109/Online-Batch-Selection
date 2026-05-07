@@ -1,6 +1,8 @@
 dataset:
-  name: CIFAR100
+  name: CIFAR100_Noise
   root: ./_CIFAR
+  noisy_labels_path: labels/CIFAR100_noise.p
+  noise_percent: 0.1
   num_classes: 100
   im_size: [32,32]
   in_channels: 3

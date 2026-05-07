@@ -22,9 +22,9 @@ teacher_model_path: /home/lgreen/projects/Online_BS/models/teacher/teacher_gener
 local_pretrained:
   type: TwoLayer
   params: 
-    m_type: 'twolayer'
+    m_type: 'twolayerbinary'
 
 # If Clip is selected, specify the model architecture here
-clip:
-  clip_architecture: 'RN50'
-  tau: 4
+# clip:
+#   clip_architecture: 'RN50'
+#   tau: 4

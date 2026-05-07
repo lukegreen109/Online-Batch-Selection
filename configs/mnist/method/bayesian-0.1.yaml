@@ -25,6 +25,6 @@ local_pretrained:
     m_type: 'lenet'
 
 # If Clip is selected, specify the model architecture here
-clip:
-  clip_architecture: 'RN50'
-  tau: 4
+# clip:
+#   clip_architecture: 'RN50'
+#   tau: 4

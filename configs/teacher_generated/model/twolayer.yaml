@@ -1,4 +1,4 @@
 networks:
   type: TwoLayer
   params: 
-    m_type: 'twolayer'
+    m_type: 'twolayerbinary'
