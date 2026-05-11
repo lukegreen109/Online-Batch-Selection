@@ -1,12 +1,11 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
 
-from .SelectionMethod import SelectionMethod
 from .method_utils.build_teacher_model import build_teacher_model
+from .SelectionMethod import MinibatchInfo
+from .SelectionMethod import SelectionMethod
 from models.BayesNet import KFCALLAWrapper
-from transformers import AutoImageProcessor, AutoModelForImageClassification
 
 
 class Bayesian(SelectionMethod):
@@ -43,7 +42,7 @@ class Bayesian(SelectionMethod):
             n_f_samples=config["n_f_samples"],
             input_dim=config["dataset"]["input_dim"],
             momentum=config["laplace_momentum"],
-            last_layer_name=last_layer_name
+            last_layer_name=last_layer_name,
         )
         self.model = self.model.cuda()
 
@@ -51,23 +50,21 @@ class Bayesian(SelectionMethod):
         self.template = self.data_info.get("template", None)
         self.classes = self.data_info.get("classes", None)
 
-        self.setup_teacher_model(config,logger)
-        self.test_teacher() # Validate teacher classifier test accuracy
+        self.setup_teacher_model(config, logger)
+        self.test_teacher()  # Validate teacher classifier test accuracy
         self.precompute_losses()
 
         self.alpha = config["alpha"]
         self.adaptive_alpha = config["adaptive_alpha"]
 
-
     def setup_teacher_model(self, config, logger):
         """Retrieve the teacher model from config for computing irreducible loss."""
         teacher_config = dict(config)
-        teacher_config['classes'] = self.data_info.get('classes')
-        teacher_config['template'] = self.data_info.get('template')
+        teacher_config["classes"] = self.data_info.get("classes")
+        teacher_config["template"] = self.data_info.get("template")
         self.teacher_model = build_teacher_model(teacher_config, logger)
         self.teacher_model.to(self.device)
         self.teacher_model.eval()
-
 
     def precompute_losses(self):
         """Precompute losses for the training dataset using the teacher model."""
@@ -75,25 +72,27 @@ class Bayesian(SelectionMethod):
 
         with torch.no_grad():
             for datas in self.train_loader:
-                inputs = datas['input'].to(self.device)
-                targets = datas['target'].to(self.device)
-                indexes = datas['index']
+                inputs = datas["input"].to(self.device)
+                targets = datas["target"].to(self.device)
+                indexes = datas["index"]
                 outputs = self.teacher_model(inputs)
-                loss = - F.cross_entropy(outputs, targets, reduction='none')
+                loss = -F.cross_entropy(outputs, targets, reduction="none")
                 losses_tensor[indexes] = loss.cpu().float()
 
         # Attach the losses tensor directly to the dataset object
         self.train_dset.teacher_loss_cache = losses_tensor
-        self.logger.info(f"Cached teacher losses for {len(losses_tensor)} samples in dataset.")
+        self.logger.info(
+            f"Cached teacher losses for {len(losses_tensor)} samples in dataset."
+        )
 
     def test_teacher(self):
-        self.logger.info('=====> Start teacher Validation')
+        self.logger.info("=====> Start teacher Validation")
         all_preds = []
         all_labels = []
         with torch.no_grad():
             for i, datas in enumerate(self.test_loader):
-                inputs = datas['input'].cuda()
-                targets = datas['target'].cuda()
+                inputs = datas["input"].cuda()
+                targets = datas["target"].cuda()
                 outputs = self.teacher_model(inputs)
                 preds = torch.argmax(outputs, dim=1)
                 all_preds.append(preds.cpu().numpy())
@@ -101,7 +100,7 @@ class Bayesian(SelectionMethod):
         all_preds = np.concatenate(all_preds)
         all_labels = np.concatenate(all_labels)
         acc = np.mean(all_preds == all_labels)
-        self.logger.info(f'=====> teacher Test Accuracy: {acc:.4f}')
+        self.logger.info(f"=====> teacher Test Accuracy: {acc:.4f}")
 
     def get_ratio_per_epoch(self, epoch):
         if epoch < self.warmup_epochs:
@@ -128,7 +127,7 @@ class Bayesian(SelectionMethod):
         else:
             raise NotImplementedError
 
-    def bayesian_selection(self, inputs, targets, indexes, number_to_select):        
+    def bayesian_selection(self, inputs, targets, indexes, number_to_select):
         f_samples, outputs, stds, L_U_T_inverse = self.model(
             inputs, selection_pass=True
         )
@@ -142,16 +141,24 @@ class Bayesian(SelectionMethod):
             .view(f_samples.shape[0], f_samples.shape[1])
             .mean(1)
         )
-        teacher_outputs = self.train_dset.teacher_loss_cache[indexes].to(f_samples.device)
+        teacher_outputs = self.train_dset.teacher_loss_cache[indexes].to(
+            f_samples.device
+        )
         if self.adaptive_alpha:
             bayes_loss = self.criterion(outputs, targets).item()
             teacher_loss = self.criterion(teacher_outputs, targets).item()
             self.alpha = teacher_loss / (bayes_loss + teacher_loss)
 
         second_term = teacher_outputs
-        third_term = -F.cross_entropy(f_samples.softmax(-1).mean(1).log(), targets, reduction="none")
-        select_obj = self.alpha * first_term + (1 - self.alpha) * second_term - third_term
-        _, index_selected = torch.topk(select_obj, k=number_to_select, largest=True, sorted=False)
+        third_term = -F.cross_entropy(
+            f_samples.softmax(-1).mean(1).log(), targets, reduction="none"
+        )
+        select_obj = (
+            self.alpha * first_term + (1 - self.alpha) * second_term - third_term
+        )
+        _, index_selected = torch.topk(
+            select_obj, k=number_to_select, largest=True, sorted=False
+        )
         return index_selected.cpu().numpy()
 
     def before_batch(self, i, inputs, targets, indexes, epoch):
@@ -170,11 +177,13 @@ class Bayesian(SelectionMethod):
 
         self.model.eval()
         with torch.no_grad():
-            indices = self.bayesian_selection(inputs, targets, indexes, number_to_select)
+            indices = self.bayesian_selection(
+                inputs, targets, indexes, number_to_select
+            )
         self.model.train()
 
         inputs = inputs[indices]
         targets = targets[indices]
         indexes = indexes[indices]
 
-        return inputs, targets, indexes
+        return MinibatchInfo(inputs, targets, indexes)
