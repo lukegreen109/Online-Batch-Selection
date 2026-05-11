@@ -7,7 +7,7 @@ DIAGNOSTICS="configs/diagnostics/snapshots_log_interval.yaml"
 
 CONFIG_DIR="configs/cifar10-minimal"
 
-METHODS=("$CONFIG_DIR/method/uniform-0.1.yaml")
+METHODS=("$CONFIG_DIR/method/gradnormis-0.1.yaml")
 MODELS=("$CONFIG_DIR/model/lenet.yaml")
 OPTIMS=("$CONFIG_DIR/optim/adamw-320-0.001-0.01.yaml")
 DATAS=("$CONFIG_DIR/data/cifar10.yaml")

@@ -361,23 +361,30 @@ class SelectionMethod(object):
             minibatch = self.before_batch(
                 i, metabatch_inputs, metabatch_targets, metabatch_indexes, epoch
             )
-            selected_outputs, features = (
-                self.model(
+            
+            if self.need_features:
+                selected_outputs, features = self.model(
                     x=minibatch.inputs,
-                    need_features=self.need_features,
+                    need_features=True,
                     targets=minibatch.targets,
                 )
-                if self.need_features
-                else (
-                    self.model(
-                        x=minibatch.inputs,
-                        need_features=False,
-                        targets=minibatch.targets,
-                    ),
-                    None,
+            else:
+                selected_outputs = self.model(
+                    x=minibatch.inputs,
+                    need_features=False,
+                    targets=minibatch.targets,
                 )
+                features = None
+            
+            # Reweight loss using minibatch weights, if present
+            criterion_reduction = 'mean' if minibatch.weights is None else 'weighted'
+            loss = self.criterion(
+                selected_outputs, 
+                minibatch.targets, 
+                reduction=criterion_reduction,
+                weights=minibatch.weights  # If None, not applied
             )
-            loss = self.criterion(selected_outputs, minibatch.targets)
+
             self.while_update(
                 selected_outputs,
                 loss,
