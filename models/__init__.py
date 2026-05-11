@@ -1,9 +1,5 @@
 from .ResNet import create_model as ResNet
 from .ResNet_torchvision import create_model as ResNet_torchvision
-from .Small_cnn import create_model as Small_cnn
 from .LeNet import create_model as LeNet
-from .MNIST_cnn import create_model as MNIST_cnn
-from .Small_linear import create_model as Small_linear
-from .Simple_fc import create_model as Simple_fc
 from .Linear import create_model as Linear
 from .TwoLayer import create_model as TwoLayer

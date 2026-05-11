@@ -153,7 +153,7 @@ def ResNet152(num_classes, in_channels=3):
     return ResNet(Bottleneck, [3, 8, 36, 3], num_classes=num_classes, in_channels=in_channels)
 
 
-def create_model(m_type='resnet101',num_classes=1000, in_channels=3, pretrained = False):
+def create_model(m_type='resnet101',num_classes=1000, in_channels=3, pretrained = False, **kwargs):
     if not pretrained:
         if m_type == 'resnet18':
             model = ResNet18(num_classes, in_channels)

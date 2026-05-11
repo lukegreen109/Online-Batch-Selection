@@ -1,6 +1,13 @@
 import numpy as np
 import torch
 
+from .data_utils.generate_noise import apply_or_generate_label_noise
+
+
+makeblobs_templates = [
+    'a point from class {}.',
+]
+
 
 class wrapped_dataset(torch.utils.data.Dataset):
     def __init__(self, inputs: torch.Tensor, targets: torch.Tensor):
@@ -23,6 +30,37 @@ class wrapped_dataset(torch.utils.data.Dataset):
             'target': self.targets[index],
             'index': index,
         }
+
+
+def _makeblobs_output(config, logger, train_dset, test_dset, num_classes, include_noise=False):
+    payload = {
+        'num_classes': num_classes,
+        'train_dset': train_dset,
+        'train_dset_unaugmented': train_dset,
+        'test_loader': torch.utils.data.DataLoader(
+            test_dset,
+            batch_size=config['training_opt']['test_batch_size'],
+            shuffle=False,
+            num_workers=config['training_opt']['num_data_workers'],
+            pin_memory=True,
+            drop_last=False,
+        ),
+        'num_train_samples': len(train_dset),
+        'classes': [f'class {class_idx}' for class_idx in range(num_classes)],
+        'template': makeblobs_templates,
+    }
+    if include_noise:
+        payload.update(
+            apply_or_generate_label_noise(
+                dataset=train_dset,
+                num_classes=num_classes,
+                dataset_config=config['dataset'],
+                logger=logger,
+                dataset_name='MakeBlobs',
+                seed=config.get('seed'),
+            )
+        )
+    return payload
 
 
 def MakeBlobs(config, logger):
@@ -102,13 +140,78 @@ def MakeBlobs(config, logger):
         else config['training_opt']['test_batch_size']
     )
 
-    test_loader = torch.utils.data.DataLoader(
-        test_dset,
-        batch_size=config['training_opt']['test_batch_size'],
-        shuffle=False,
-        num_workers=config['training_opt']['num_data_workers'],
-        pin_memory=True,
-        drop_last=False,
+    if isinstance(centers, int):
+        num_classes = centers
+    else:
+        num_classes = len(centers)
+
+    return _makeblobs_output(
+        config=config,
+        logger=logger,
+        train_dset=train_dset,
+        test_dset=test_dset,
+        num_classes=num_classes,
+    )
+
+
+def MakeBlobs_Noise(config, logger):
+    try:
+        from sklearn.datasets import make_blobs
+        from sklearn.model_selection import train_test_split
+    except Exception as e:
+        raise ImportError(
+            "MakeBlobs requires scikit-learn. Install it (e.g., `pip install scikit-learn`)."
+        ) from e
+
+    dcfg = config.get('dataset', {})
+    seed = dcfg.get('random_state', config.get('seed', 16))
+
+    n_samples = int(dcfg.get('n_samples', 10_000))
+    n_features = int(dcfg.get('n_features', 2))
+    centers = dcfg.get('centers', 3)
+    cluster_std = dcfg.get('cluster_std', 1.0)
+    center_box = dcfg.get('center_box', [-10.0, 10.0])
+    test_size = float(dcfg.get('test_size', 0.2))
+    standardize = bool(dcfg.get('standardize', True))
+
+    X, y = make_blobs(
+        n_samples=n_samples,
+        n_features=n_features,
+        centers=centers,
+        cluster_std=cluster_std,
+        center_box=tuple(center_box),
+        random_state=seed,
+    )
+    X = X.astype(np.float32)
+    y = y.astype(np.int64)
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X,
+        y,
+        test_size=test_size,
+        random_state=seed,
+        stratify=y,
+    )
+
+    if standardize:
+        mean = X_train.mean(axis=0, keepdims=True)
+        std = X_train.std(axis=0, keepdims=True)
+        std = np.maximum(std, 1e-6)
+        X_train = (X_train - mean) / std
+        X_test = (X_test - mean) / std
+
+    X_train_t = torch.from_numpy(X_train)
+    y_train_t = torch.from_numpy(y_train)
+    X_test_t = torch.from_numpy(X_test)
+    y_test_t = torch.from_numpy(y_test)
+
+    train_dset = wrapped_dataset(X_train_t, y_train_t)
+    test_dset = wrapped_dataset(X_test_t, y_test_t)
+
+    config['training_opt']['test_batch_size'] = (
+        config['training_opt']['batch_size']
+        if 'test_batch_size' not in config['training_opt']
+        else config['training_opt']['test_batch_size']
     )
 
     if isinstance(centers, int):
@@ -116,10 +219,11 @@ def MakeBlobs(config, logger):
     else:
         num_classes = len(centers)
 
-    return {
-        'num_classes': num_classes,
-        'train_dset': train_dset,
-        'train_dset_unaugmented': train_dset,
-        'test_loader': test_loader,
-        'num_train_samples': len(train_dset),
-    }
+    return _makeblobs_output(
+        config=config,
+        logger=logger,
+        train_dset=train_dset,
+        test_dset=test_dset,
+        num_classes=num_classes,
+        include_noise=True,
+    )

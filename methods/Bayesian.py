@@ -2,13 +2,11 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-import models
 
 from .SelectionMethod import SelectionMethod
+from .method_utils.build_teacher_model import build_teacher_model
 from models.BayesNet import KFCALLAWrapper
 from transformers import AutoImageProcessor, AutoModelForImageClassification
-from models.BayesNet import CLIPZeroShotClassifier
-import timm
 
 
 class Bayesian(SelectionMethod):
@@ -63,42 +61,13 @@ class Bayesian(SelectionMethod):
 
     def setup_teacher_model(self, config, logger):
         """Retrieve the teacher model from config for computing irreducible loss."""
-        teacher_model_path = config['teacher_model_path']
-        teacher_model_source = config['teacher_model_source']
-
-        if teacher_model_source == "clip":
-            self.teacher_model = CLIPZeroShotClassifier(
-                self.data_info["classes"],
-                self.data_info["template"],
-                config["dataset"]["name"],
-                config["clip"]["clip_architecture"],
-                tau = config["clip"]["tau"],
-            )
-
-        elif teacher_model_source == "timm":
-            # Load model directly
-            model = timm.create_model(teacher_model_path, pretrained=True)
-            self.teacher_model = model
-
-        elif teacher_model_source == "local_pretrained":
-            # Get specifications from method and data configs to create teacher model
-            teacher_model_type = config['local_pretrained']['type']
-            teacher_model_args = dict(config['local_pretrained']['params'])
-            teacher_model_args['in_channels'] = config['dataset']['in_channels']
-            teacher_model_args['num_classes'] = config['dataset']['num_classes']
-
-            try:
-                self.teacher_model = getattr(models, teacher_model_type)(**teacher_model_args)
-            except AttributeError:
-                raise ValueError(f"Unknown teacher model type: {teacher_model_type}")
-            # Load teacher model weights from path
-            self.teacher_model.load_state_dict(torch.load(teacher_model_path, map_location=self.device))
-        else:
-            raise ValueError("Teacher model type {teacher_model_source} not supported.")
-        
-        logger.info(f"Loading teacher model from {teacher_model_path}")
+        teacher_config = dict(config)
+        teacher_config['classes'] = self.data_info.get('classes')
+        teacher_config['template'] = self.data_info.get('template')
+        self.teacher_model = build_teacher_model(teacher_config, logger)
         self.teacher_model.to(self.device)
         self.teacher_model.eval()
+
 
     def precompute_losses(self):
         """Precompute losses for the training dataset using the teacher model."""

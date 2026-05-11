@@ -31,3 +31,6 @@ runs/
 models/teacher
 selected_points/
 scripts/
+labels/
+snapshots/
+spectral_decay/

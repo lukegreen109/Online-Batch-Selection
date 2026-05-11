@@ -117,7 +117,7 @@ def main():
     val_loader = data_info["test_loader"]
 
     output_dataset_name = args.dataset if args.dataset is not None else dataset_name
-    out_path = args.output if args.output is not None else f"results/data/labels_{output_dataset_name}.p"
+    out_path = args.output if args.output is not None else f"labels/{output_dataset_name}.p"
 
     if os.path.exists(out_path) and not args.overwrite:
         raise FileExistsError(

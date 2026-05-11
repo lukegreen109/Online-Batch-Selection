@@ -87,8 +87,11 @@ class custom_logger():
         wandb.init(project=project, name=name, config=config)
         
 
-    def wandb_log(self, log_dict):
-        wandb.log(log_dict)
+    def wandb_log(self, log_dict, step=None):
+        if step is None:
+            wandb.log(log_dict)
+        else:
+            wandb.log(log_dict, step=step)
 
     def wandb_finish(self):
         wandb.finish()

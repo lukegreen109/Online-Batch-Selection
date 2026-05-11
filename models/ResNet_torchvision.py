@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 
-def create_model(m_type='resnet101', num_classes=1000, in_channels=3, pretrained = False):
+def create_model(m_type='resnet101', num_classes=1000, in_channels=3, pretrained = False, **kwargs):
     # create various resnet models
     weights_map = {
         'resnet18': models.ResNet18_Weights.DEFAULT,

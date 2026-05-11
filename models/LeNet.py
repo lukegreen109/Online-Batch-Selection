@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-def create_model(m_type='lenet', in_channels=1, num_classes=10, pretrained=False, dropout=0):
+def create_model(m_type='lenet', in_channels=1, num_classes=10, pretrained=False, dropout=0, **kwargs):
     model = lenet(in_channels=in_channels, num_classes=num_classes)
     return model
 

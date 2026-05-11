@@ -11,8 +11,17 @@ diagnostics:
   wandb_grad_norms: true
   wandb_linear_probe: true
   wandb_ntk: true
-  layers: []
+  layers: ["linear1"]
   wandb_histogram_max_points: 200000
   linear_probe_max_iter: 300
   ntk_max_samples: 1000
   ntk_top_k: 10
+  local_spectral_decay: true
+  # Optional teacher kernel reference for NTK diagnostics.
+  ntk_teacher_model:
+    source: local_pretrained
+    path: /home/lgreen/projects/Online_BS/models/teacher/teacher_generating.pth
+    local_pretrained:
+      type: TwoLayer
+      params:
+        m_type: 'twolayerbinary'

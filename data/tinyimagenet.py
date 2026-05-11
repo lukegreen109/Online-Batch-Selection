@@ -1,6 +1,8 @@
 from torchvision import datasets, transforms
 import torch
 import os
+
+from .data_utils.generate_noise import apply_or_generate_label_noise
 # import requests
 # import zipfile
 # from tqdm import tqdm
@@ -17,6 +19,43 @@ class wrapped_dataset(torch.utils.data.Dataset):
             'target': self.dataset[index][1],
             'index': index
         }
+
+
+tinyimagenet_templates = [
+    'a photo of a {}.',
+]
+
+
+def _build_test_loader(config, dst_test):
+    config['training_opt']['test_batch_size'] = config['training_opt']['batch_size'] if 'test_batch_size' not in config['training_opt'] else config['training_opt']['test_batch_size']
+    return torch.utils.data.DataLoader(
+        wrapped_dataset(dst_test), batch_size = config['training_opt']['test_batch_size'],
+        shuffle=False, num_workers = config['training_opt']['num_data_workers'], pin_memory=True, drop_last=False
+    )
+
+
+def _build_dataset_info(config, logger, dst_train, dst_test, num_classes, include_noise=False):
+    payload = {
+        'num_classes': num_classes,
+        'train_dset': wrapped_dataset(dst_train),
+        'test_loader': _build_test_loader(config, dst_test),
+        'num_train_samples': len(dst_train),
+        'classes': dst_train.classes,
+        'template': tinyimagenet_templates,
+    }
+    if include_noise:
+        payload.update(
+            apply_or_generate_label_noise(
+                dataset=dst_train,
+                num_classes=num_classes,
+                dataset_config=config['dataset'],
+                logger=logger,
+                dataset_name='TinyImageNet',
+                seed=config.get('seed'),
+            )
+        )
+        payload['train_dset'] = wrapped_dataset(dst_train)
+    return payload
 
 def TinyImageNet(config, logger):
     if not os.path.exists(os.path.join(config['dataset']['root'], "tiny-imagenet-200")):
@@ -57,18 +96,43 @@ def TinyImageNet(config, logger):
     dst_train = datasets.ImageFolder(root=os.path.join(config['dataset']['root'], 'tiny-imagenet-200/train'), transform=transform)
     dst_test = datasets.ImageFolder(root=os.path.join(config['dataset']['root'], 'tiny-imagenet-200/val'), transform=test_transform)
     # print(dst_test.targets)
-    config['training_opt']['test_batch_size'] = config['training_opt']['batch_size'] if 'test_batch_size' not in config['training_opt'] else config['training_opt']['test_batch_size']
-    test_loader = torch.utils.data.DataLoader(
-        wrapped_dataset(dst_test), batch_size = config['training_opt']['test_batch_size'],
-        shuffle=False, num_workers = config['training_opt']['num_data_workers'], pin_memory=True, drop_last=False
+    return _build_dataset_info(
+        config=config,
+        logger=logger,
+        dst_train=dst_train,
+        dst_test=dst_test,
+        num_classes=num_classes,
     )
 
-    return {
-        'num_classes': num_classes,
-        'train_dset': wrapped_dataset(dst_train),
-        'test_loader': test_loader,
-        'num_train_samples': len(dst_train)
-    }
+
+def TinyImageNet_Noise(config, logger):
+    if not os.path.exists(os.path.join(config['dataset']['root'], "tiny-imagenet-200")):
+        raise ValueError("Dataset not found")
+
+    im_size = (32, 32) if 'downsize' in config['dataset'] and config['dataset']['downsize'] else (64, 64)
+    num_classes = 200
+    mean = [0.4802, 0.4481, 0.3975]
+    std = (0.2770, 0.2691, 0.2821)
+
+    transform = transforms.Compose(
+        [transforms.RandomCrop(im_size),
+         transforms.RandomHorizontalFlip(),
+         transforms.ToTensor(),
+         transforms.Normalize(mean=mean, std=std)
+        ])
+    test_transform =  transforms.Compose([transforms.RandomCrop(im_size),transforms.ToTensor(), transforms.Normalize(mean=mean, std=std)])
+
+    dst_train = datasets.ImageFolder(root=os.path.join(config['dataset']['root'], 'tiny-imagenet-200/train'), transform=transform)
+    dst_test = datasets.ImageFolder(root=os.path.join(config['dataset']['root'], 'tiny-imagenet-200/val'), transform=test_transform)
+
+    return _build_dataset_info(
+        config=config,
+        logger=logger,
+        dst_train=dst_train,
+        dst_test=dst_test,
+        num_classes=num_classes,
+        include_noise=True,
+    )
 
 
     

@@ -53,7 +53,6 @@ class GradNormIS(SelectionMethod):
         train_loader = torch.utils.data.DataLoader(self.train_dset, num_workers=self.num_data_workers, pin_memory=True, batch_sampler=batch_sampler)
         total_batch = len(train_loader)
         epoch_begin_time = time.time()
-        self.num_selected_noisy_indexes = 0
         # train
         for i, datas in enumerate(train_loader):
             inputs = datas['input'].cuda()
@@ -109,7 +108,6 @@ class GradNormIS(SelectionMethod):
             self.tau = self.a_tau * self.tau + (1 - self.a_tau) * ((1 - (1 / (grad_norm ** 2).sum()) * torch.norm((grad_norm - uniform)) ** 2) ** -1/2)
             self.logger.wandb_log({"tau": self.tau, "tauth": tau_th})
             self._record_selected_points(epoch, indexes)
-            self.num_selected_noisy_indexes += np.intersect1d(indexes.cpu().numpy(), self.noisy_indices.cpu().numpy()).size
             if i % self.config['logger_opt']['print_iter'] == 0:
                 # train acc
                 _, predicted = torch.max(outputs.data, 1)
@@ -124,7 +122,7 @@ class GradNormIS(SelectionMethod):
         now = time.time()
         self.logger.wandb_log({'loss': loss.item(), 'epoch': epoch, 'lr': self.optimizer.param_groups[0]['lr'], self.training_opt['loss_type']: loss.item()})
         val_acc, ema_val_acc = self.test()
-        self.logger.wandb_log({'percent noisy points selected': self.num_selected_noisy_indexes / total_batch, 'val_acc': val_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'total_time': now - self.run_begin_time, 'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'best_val_acc': max(self.best_acc, val_acc)})
+        self.logger.wandb_log({'val_acc': val_acc, 'ema_val_acc': ema_val_acc, 'epoch': epoch, 'total_time': now - self.run_begin_time, 'total_step': self.total_step, 'time_epoch': now - epoch_begin_time, 'best_val_acc': max(self.best_acc, val_acc)})
         self.logger.info(f'=====> Time: {now - self.run_begin_time:.4f} s, Time this epoch: {now - epoch_begin_time:.4f} s, Total step: {self.total_step}')
             # save model
         self.logger.info('=====> Save model')

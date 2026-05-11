@@ -57,7 +57,7 @@ class TrainLoss(SelectionMethod):
                 self.logger.info(f'balance: {self.balance}')
                 self.logger.info('selecting samples for epoch {}, ratio {}'.format(epoch, ratio))
         number_to_select = int(inputs.shape[0] * ratio)
-        indices = self.selection(inputs, targets, number_to_select)
+        indices = self.trainloss_selection(inputs, targets, number_to_select)
         inputs = inputs[indices]
         targets = targets[indices]
         indexes = indexes[indices]

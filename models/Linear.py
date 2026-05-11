@@ -1,9 +1,11 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
 
-def create_model(m_type='linear', input_dim=10, num_classes=10, in_channels=1, pretrained=False):
-    model = Linear(input_dim=input_dim, num_classes=num_classes)  # default model
+def create_model(m_type='linear', input_dim=[1,1,10], num_classes=10, pretrained=False, **kwargs):
+    input_dim_scalar = math.prod(input_dim)
+    model = Linear(input_dim=input_dim_scalar, num_classes=num_classes)  # default model
     return model
 
 class Linear(nn.Module):
