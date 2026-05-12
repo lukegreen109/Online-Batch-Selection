@@ -111,7 +111,7 @@ class GradNormIS(SelectionMethod):
         # Algorithm 1 in https://arxiv.org/pdf/1803.00942
         if not self.uniform_fallback or self.tau > tau_th:
             minibatch_indices = torch.multinomial(grad_norm, number_to_select, replacement=self.replacement)
-            weights = (self.batch_size * grad_norm)**-1
+            weights = (self.batch_size * grad_norm[minibatch_indices])**-1
         else:
             minibatch_indices = torch.randint(self.batch_size, size=(number_to_select,))
             weights = None # Uniform weighting

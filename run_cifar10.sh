@@ -2,7 +2,7 @@
 
 # Usage: ./run.sh
 
-SEEDS=(2 3 4 5)
+SEEDS=(2)
 DIAGNOSTICS="configs/diagnostics/snapshots_log_interval.yaml"
 
 CONFIG_DIR="configs/cifar10"
@@ -18,7 +18,7 @@ for SEED in "${SEEDS[@]}"; do
       for optim in "${OPTIMS[@]}"; do
         for method in "${METHODS[@]}"; do
           echo "Running: --method $method --data $data --model $model --optim $optim --diagnostics $DIAGNOSTICS --seed $SEED"
-          CUDA_VISIBLE_DEVICES=0 uv run main.py --method "$method" --data "$data" --model "$model" --optim "$optim" --diagnostics "$DIAGNOSTICS" --seed "$SEED" --wandb_not_upload
+          CUDA_VISIBLE_DEVICES=1 uv run main.py --method "$method" --data "$data" --model "$model" --optim "$optim" --diagnostics "$DIAGNOSTICS" --seed "$SEED"
         done
       done
     done
