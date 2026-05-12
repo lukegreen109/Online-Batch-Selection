@@ -7,6 +7,6 @@ method_opt:
 
   sample_with_replacement: false
   
-  uniform_fallback: False
+  uniform_fallback: True
   uniform_fallback_opt:
     a_tau: 0.5
