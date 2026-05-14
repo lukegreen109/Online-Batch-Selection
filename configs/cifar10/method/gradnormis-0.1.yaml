@@ -10,3 +10,5 @@ method_opt:
   uniform_fallback: True
   uniform_fallback_opt:
     a_tau: 0.5
+
+  probability_threshold: 0.0005

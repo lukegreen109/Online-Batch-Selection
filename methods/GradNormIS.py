@@ -38,6 +38,8 @@ class GradNormIS(SelectionMethod):
             self.tau = 0
             self.a_tau = self.config["method_opt"]["uniform_fallback_opt"]["a_tau"]
 
+        self.probability_threshold = self.config["method_opt"].get("probability_threshold", 0.0)
+
     def get_ratio_per_epoch(self, epoch):
         if epoch < self.warmup_epochs:
             self.logger.info("warming up")
@@ -84,6 +86,20 @@ class GradNormIS(SelectionMethod):
             grad = grad[:, index]
         grad_mean = grad.mean(dim=0)
         return grad_mean, grad
+    
+    def normalize_and_threshold(self, weights, min_num_nonzero):
+        # Normalize weights so they sum to 1 (turn them into a probability distribution)
+        new_weights = weights / torch.sum(weights)
+        
+        # Apply probability threshold
+        mask_above_threshold = new_weights >= self.probability_threshold
+        # Make sure at least min_num_nonzero samples have nonzero probability. 
+        # Otherwise, don't threshold at all
+        if mask_above_threshold.sum() >= min_num_nonzero: 
+            new_weights[~mask_above_threshold] = 0.0
+        
+        # Renormalize
+        return new_weights / torch.sum(new_weights)
 
     def before_batch(self, i, inputs, targets, indexes, epoch):
         ratio = self.get_ratio_per_epoch(epoch)
@@ -112,8 +128,10 @@ class GradNormIS(SelectionMethod):
         
         # Algorithm 1 in https://arxiv.org/pdf/1803.00942
         if not self.uniform_fallback or self.tau > tau_th:
-            minibatch_indices = torch.multinomial(grad_norm, number_to_select, replacement=self.replacement)
-            weights = (B * grad_norm[minibatch_indices])**-1
+            # Apply a probability threshold for stability
+            probabilities = self.normalize_and_threshold(grad_norm, b) 
+            minibatch_indices = torch.multinomial(probabilities, number_to_select, replacement=self.replacement)
+            weights = (B * probabilities[minibatch_indices])**-1
         else:
             minibatch_indices = torch.randint(B, size=(number_to_select,))
             weights = None # Uniform weighting
