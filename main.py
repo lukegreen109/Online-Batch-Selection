@@ -26,6 +26,7 @@ def build_artifact_stem(args, config):
             ratio=config.get('method_opt', {}).get('ratio'),
             lr=config['training_opt']['optim_params']['lr'],
             wd=config['training_opt']['optim_params']['weight_decay'],
+            noise_percent=config['dataset'].get('noise_percent', 0.0)
         )
     ).replace(' ', '')
 
@@ -255,7 +256,8 @@ def main():
     logger.info(f'=====> Wandb initialized')
     wandb_init_kwargs = {
         'config': config,
-        'project': "Thesis Runs",
+        'entity': "miller-ml-research",
+        'project': "Noisy_Expiriments",
         'dir': save_dir,
     }
     if resume_state is not None:
@@ -272,6 +274,7 @@ def main():
     if resume_state is None:
         run.name = (
             f"{method}_{config['dataset']['name']}_"
+            f"{config['dataset']['noise_percent']}p_"
             f"{config['training_opt']['optimizer']}_Seed{config['seed']}"
         )
     else:
