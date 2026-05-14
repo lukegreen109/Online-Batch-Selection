@@ -322,7 +322,16 @@ class SelectionMethod(object):
                     None,
                 )
             )
-            loss = self.criterion(selected_outputs, minibatch.targets)
+            
+            # Reweight loss using minibatch weights, if present
+            criterion_reduction = 'mean' if minibatch.weights is None else 'weighted'
+            loss = self.criterion(
+                selected_outputs, 
+                minibatch.targets, 
+                reduction=criterion_reduction,
+                weights=minibatch.weights  # If None, not applied
+            )
+
             self.while_update(
                 selected_outputs,
                 loss,
