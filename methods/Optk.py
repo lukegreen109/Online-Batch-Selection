@@ -1,14 +1,14 @@
-from methods.SelectionMethod import SelectionMethod
-from methods.method_utils.optimizer import *
-from methods.method_utils.loss import *
-import models
-import data
-import torch
-import numpy as np
-import torch
 import os
+
+import numpy as np
 import torch.nn.functional as F
 import torch.serialization
+
+import models
+from methods.method_utils.loss import *
+from methods.method_utils.optimizer import *
+from methods.SelectionMethod import MinibatchInfo
+from methods.SelectionMethod import SelectionMethod
 
 
 class Optk(SelectionMethod):
@@ -260,4 +260,4 @@ class Optk(SelectionMethod):
         if not self.warming_up:
             indices = indices.to(indexes.device)
         indexes = indexes[indices]
-        return inputs, targets, indexes
+        return MinibatchInfo(inputs, targets, indexes)

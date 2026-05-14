@@ -1,12 +1,12 @@
-from methods.SelectionMethod import SelectionMethod
-from methods.method_utils.build_teacher_model import build_teacher_model
-from methods.method_utils.optimizer import *
-from methods.method_utils.loss import *
-import torch
 import numpy as np
 import torch
 import torch.nn.functional as F
-from transformers import AutoImageProcessor, AutoModelForImageClassification
+
+from methods.method_utils.build_teacher_model import build_teacher_model
+from methods.method_utils.loss import *
+from methods.method_utils.optimizer import *
+from methods.SelectionMethod import MinibatchInfo
+from methods.SelectionMethod import SelectionMethod
 
 
 class RhoLoss(SelectionMethod):
@@ -170,4 +170,4 @@ class RhoLoss(SelectionMethod):
         inputs = inputs[indices]
         targets = targets[indices]
         indexes = indexes[indices]
-        return inputs, targets, indexes
+        return MinibatchInfo(inputs, targets, indexes)

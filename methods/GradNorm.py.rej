@@ -1,0 +1,23 @@
+diff a/methods/GradNorm.py b/methods/GradNorm.py	(rejected hunks)
+@@ -1,8 +1,11 @@
+-from methods.SelectionMethod import SelectionMethod
+-import torch
+ import numpy as np
++import torch
++
++from methods.SelectionMethod import MinibatchInfo
++from methods.SelectionMethod import SelectionMethod
++
++
+ class GradNorm(SelectionMethod):
+     method_name = "GradNorm"
+ 
+@@ -100,8 +100,7 @@ class GradNorm(SelectionMethod):
+         inputs = inputs[indices]
+         targets = targets[indices]
+         indexes = indexes[indices]
+ 
+-        return inputs, targets, indexes
+-    
+\ No newline at end of file
++        return MinibatchInfo(inputs, targets, indexes)

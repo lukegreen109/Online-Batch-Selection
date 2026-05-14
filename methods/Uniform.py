@@ -1,5 +1,8 @@
-from .SelectionMethod import SelectionMethod
 import numpy as np
+
+from .SelectionMethod import MinibatchInfo
+from .SelectionMethod import SelectionMethod
+
 
 class Uniform(SelectionMethod):
     method_name = 'Uniform'
@@ -56,6 +59,11 @@ class Uniform(SelectionMethod):
                 self.logger.info(f'balance: {self.balance}')
                 self.logger.info(f'ratio: {ratio}')
             num_samples = int(inputs.shape[0] * ratio)
-            selected_indices = np.random.choice(np.arange(inputs.shape[0]), num_samples, replace=False)
-            return inputs[selected_indices], targets[selected_indices], indexes[selected_indices]
-        
+            selected_indices = np.random.choice(
+                np.arange(inputs.shape[0]), num_samples, replace=False
+            )
+            return MinibatchInfo(
+                inputs[selected_indices],
+                targets[selected_indices],
+                indexes[selected_indices],
+            )
