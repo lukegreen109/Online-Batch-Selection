@@ -99,29 +99,32 @@ class GradNormIS(SelectionMethod):
                 )
         _, grad = self.calc_grad(inputs, targets, indexes)
         grad_norm = torch.norm(grad, dim=1)
+
+        B = len(targets) # Same as self.batch_size most of the time
         number_to_select = int(inputs.shape[0] * ratio)
-        number_to_select = max(1, min(number_to_select, self.batch_size)) # clip between 1 and batch size
+        number_to_select = max(1, min(number_to_select, B)) # clip between 1 and batch size
+
 
         if self.uniform_fallback:
             # See discussion at the beginning of Sec. 3.3 of https://arxiv.org/pdf/1803.00942
-            B = self.batch_size
             b = number_to_select
             tau_th = (B+3*b) / (3*b) 
         
         # Algorithm 1 in https://arxiv.org/pdf/1803.00942
         if not self.uniform_fallback or self.tau > tau_th:
             minibatch_indices = torch.multinomial(grad_norm, number_to_select, replacement=self.replacement)
-            weights = (self.batch_size * grad_norm[minibatch_indices])**-1
+            weights = (B * grad_norm[minibatch_indices])**-1
         else:
-            minibatch_indices = torch.randint(self.batch_size, size=(number_to_select,))
+            minibatch_indices = torch.randint(B, size=(number_to_select,))
             weights = None # Uniform weighting
 
         if self.uniform_fallback:
             # See Equation 27 and line 17 of Algorithm 1
-            new_tau_inv = 1 - torch.sum((grad_norm - 1/self.batch_size)**2) / torch.sum(grad_norm**2)
+            new_tau_inv = 1 - torch.sum((grad_norm - 1/B)**2) / torch.sum(grad_norm**2)
             self.tau = self.a_tau * self.tau + (1 - self.a_tau) * new_tau_inv**-1
 
         minibatch_indices = minibatch_indices.cpu().numpy()
+
         inputs = inputs[minibatch_indices]
         targets = targets[minibatch_indices]
         indexes = indexes[minibatch_indices]
