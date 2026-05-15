@@ -1,6 +1,7 @@
-from methods.SelectionMethod import SelectionMethod
+from methods.SelectionMethod import SelectionMethod, MinibatchInfo
 import torch
 import numpy as np
+
 class GradNorm(SelectionMethod):
     method_name = "GradNorm"
     def __init__(self, config, logger):
@@ -74,5 +75,5 @@ class GradNorm(SelectionMethod):
         targets = targets[indices]
         indexes = indexes[indices]
 
-        return inputs, targets, indexes
+        return MinibatchInfo(inputs, targets, indexes)
     

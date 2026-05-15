@@ -1,8 +1,10 @@
-from .SelectionMethod import SelectionMethod
 import numpy as np
 import torch
 import torch.nn.functional as F
-import time
+
+from .SelectionMethod import MinibatchInfo
+from .SelectionMethod import SelectionMethod
+
 
 class TrainLoss(SelectionMethod):
     method_name = 'TrainLoss'
@@ -61,4 +63,4 @@ class TrainLoss(SelectionMethod):
         inputs = inputs[indices]
         targets = targets[indices]
         indexes = indexes[indices]
-        return inputs, targets, indexes
+        return MinibatchInfo(inputs, targets, indexes)
