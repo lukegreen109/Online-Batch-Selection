@@ -9,6 +9,7 @@ __pycache__/
 *cifar-10-batches-py/
 _CIFAR/
 _MNIST/
+_TINYIMAGENET/
 
 # _TINYIMAGENET/
 _CIFAR_N/

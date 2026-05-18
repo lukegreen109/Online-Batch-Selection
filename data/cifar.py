@@ -457,6 +457,42 @@ def CIFAR10(config, logger):
         templates=cifar10_templates,
     )
 
+def CIFAR10_minimal(config, logger):
+    """Gets a subset of CIFAR10 for debugging purposes."""
+    im_size = (32, 32) if 'im_size' not in config['dataset'] else config['dataset']['im_size']
+    num_classes = 10
+    mean = [0.4914, 0.4822, 0.4465]
+    std = [0.2470, 0.2435, 0.2616]
+
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(mean=mean, std=std),
+    ])
+    
+    dst_train_all = datasets.CIFAR10(config['dataset']['root'], train=True, download=True, transform=transform)
+    dst_test_all = datasets.CIFAR10(config['dataset']['root'], train=False, download=True, transform=transform)
+    
+    # Only keep a portion of the training and testing data
+    keep_ratio_train = config['dataset']['keep_ratio_train']
+    keep_ratio_test = config['dataset']['keep_ratio_test']
+
+    indices_train = torch.randperm(len(dst_train_all))[:int(len(dst_train_all) * keep_ratio_train)]
+    dst_train = torch.utils.data.Subset(dst_train_all, indices_train)
+
+    indices_test = torch.randperm(len(dst_test_all))[:int(len(dst_test_all) * keep_ratio_test)]
+    dst_test = torch.utils.data.Subset(dst_test_all, indices_test)
+
+    return _build_dataset_info(
+        config=config,
+        logger=logger,
+        dataset_name='CIFAR10',
+        dst_train=dst_train,
+        dst_test=dst_test,
+        num_classes=num_classes,
+        classes=cifar10_classes,
+        templates=cifar10_templates,
+    )
+
 def CIFAR10_Noise(config, logger):
     im_size = (32, 32) if 'im_size' not in config['dataset'] else config['dataset']['im_size']
     num_classes = 10

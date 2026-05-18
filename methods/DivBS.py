@@ -1,7 +1,10 @@
-from .SelectionMethod import SelectionMethod
-import torch
 import numpy as np
+import torch
+
+from .SelectionMethod import MinibatchInfo
+from .SelectionMethod import SelectionMethod
 # import copy
+
 
 class DivBS(SelectionMethod):
     method_name = 'DivBS'
@@ -108,4 +111,4 @@ class DivBS(SelectionMethod):
         inputs = inputs[indices]
         targets = targets[indices]
         indexes = indexes[indices]
-        return inputs, targets, indexes
+        return MinibatchInfo(inputs, targets, indexes)

@@ -1,12 +1,11 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
 
-from .SelectionMethod import SelectionMethod
 from .method_utils.build_teacher_model import build_teacher_model
+from .SelectionMethod import MinibatchInfo
+from .SelectionMethod import SelectionMethod
 from models.BayesNet import KFCALLAWrapper
-from transformers import AutoImageProcessor, AutoModelForImageClassification
 
 
 class Bayesian(SelectionMethod):
@@ -177,4 +176,4 @@ class Bayesian(SelectionMethod):
         targets = targets[indices]
         indexes = indexes[indices]
 
-        return inputs, targets, indexes
+        return MinibatchInfo(inputs, targets, indexes)

@@ -1,0 +1,11 @@
+dataset:
+  name: CIFAR10_minimal
+  root: ./_CIFAR
+  num_classes: 10
+  im_size: [32,32]
+  in_channels: 3
+  input_dim: [1,3,32,32]
+
+  # Proportion of the data to keep (small proportion means faster runtime)
+  keep_ratio_train: 0.01
+  keep_ratio_test: 0.01

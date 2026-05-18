@@ -3,6 +3,7 @@ import models
 import os
 import shutil
 import time
+from dataclasses import dataclass
 import random
 import numpy as np
 from .method_utils import *
@@ -10,8 +11,14 @@ import data
 from torch.utils.data import DataLoader
 # from ema_pytorch import EMA
 
+@dataclass
+class MinibatchInfo:
+    """Object returned by SelectionMethod.before_batch"""
 
-
+    inputs: torch.Tensor
+    targets: torch.Tensor
+    indices: torch.Tensor
+    weights: torch.Tensor | None = None  # optional. For weighted loss
 
 class SelectionMethod(object):
     method_name = 'SelectionMethod'
@@ -224,9 +231,9 @@ class SelectionMethod(object):
     def after_run(self):
         self.diagnostics_logger.finalize()
 
-    def before_batch(self, i, inputs, targets, indexes, epoch):
+    def before_batch(self, i, inputs, targets, indexes, epoch) -> MinibatchInfo:
         # online batch selection
-        return inputs, targets, indexes
+        return MinibatchInfo(inputs, targets, indexes)
 
     def after_batch(self, i, inputs, targets, indexes, outputs, epoch):
         self.total_step += 1
@@ -293,19 +300,61 @@ class SelectionMethod(object):
         # train
         for i, datas in enumerate(self.train_loader):
             self.model.train()
-            batch_inputs = datas['input'].cuda()
-            batch_targets = datas['target'].cuda()
-            batch_indexes = datas['index']
-            selected_inputs, selected_targets, selected_indexes = self.before_batch(i, batch_inputs, batch_targets, batch_indexes, epoch)
-            selected_outputs, features = self.model(x=selected_inputs, need_features=self.need_features, targets=selected_targets) if self.need_features else (self.model(x=selected_inputs, need_features=False, targets=selected_targets), None)
-            loss = self.criterion(selected_outputs, selected_targets)
-            self.while_update(selected_outputs, loss, selected_targets, epoch, features, selected_indexes, batch_idx=i, batch_size=self.batch_size)
+            metabatch_inputs = datas["input"].cuda()
+            metabatch_targets = datas["target"].cuda()
+            metabatch_indexes = datas["index"]
+            minibatch = self.before_batch(
+                i, metabatch_inputs, metabatch_targets, metabatch_indexes, epoch
+            )
+            selected_outputs, features = (
+                self.model(
+                    x=minibatch.inputs,
+                    need_features=self.need_features,
+                    targets=minibatch.targets,
+                )
+                if self.need_features
+                else (
+                    self.model(
+                        x=minibatch.inputs,
+                        need_features=False,
+                        targets=minibatch.targets,
+                    ),
+                    None,
+                )
+            )
+            
+            # Reweight loss using minibatch weights, if present
+            criterion_reduction = 'mean' if minibatch.weights is None else 'weighted'
+            loss = self.criterion(
+                selected_outputs, 
+                minibatch.targets, 
+                reduction=criterion_reduction,
+                weights=minibatch.weights  # If None, not applied
+            )
+
+            self.while_update(
+                selected_outputs,
+                loss,
+                minibatch.targets,
+                epoch,
+                features,
+                minibatch.indices,
+                batch_idx=i,
+                batch_size=self.batch_size,
+            )
             self.optimizer.zero_grad()
             loss.backward()
             self.log_step_param_grad_stats(epoch)
             self.optimizer.step()
-            self.after_batch(i, selected_inputs, selected_targets, selected_indexes, selected_outputs.detach(), epoch)
-        
+            self.after_batch(
+                i,
+                minibatch.inputs,
+                minibatch.targets,
+                minibatch.indices,
+                selected_outputs.detach(),
+                epoch,
+            )
+
         now = time.time()
         self.time_this_epoch = now - epoch_begin_time
         self.total_time = now - self.run_begin_time
