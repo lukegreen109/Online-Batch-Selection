@@ -272,11 +272,17 @@ def main():
     re_nest_configs(run.config)
     wandb.define_metric('acc', 'max')
     if resume_state is None:
-        run.name = (
-            f"{method}_{config['dataset']['name']}_"
-            f"{config['dataset']['noise_percent']}p_"
-            f"{config['training_opt']['optimizer']}_Seed{config['seed']}"
-        )
+        if 'noise_percent' in config['dataset'].keys():
+            run.name = (
+                f"{method}_{config['dataset']['name']}_"
+                f"{config['dataset']['noise_percent']}p_"
+                f"{config['training_opt']['optimizer']}_Seed{config['seed']}"
+            )
+        else:
+            run.name = (
+                f"{method}_{config['dataset']['name']}_"
+                f"{config['training_opt']['optimizer']}_Seed{config['seed']}"
+            )
     else:
         logger.info(
             f"=====> Resuming W&B run {run.id} from {resume_state['checkpoint_path']} "
