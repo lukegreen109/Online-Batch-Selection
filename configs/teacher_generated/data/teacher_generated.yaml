@@ -2,7 +2,7 @@ dataset:
   name: Teacher_Generated
   # If this path does not exist, must generate new data
   # To generate new data, delete the teacher model stored at this path or specify a new path
-  generating_teacher_model_path: /home/lgreen/projects/Online_BS/models/teacher/teacher_generating.pth
+  generating_teacher_model_path: models/teacher/teacher_generating.pth
   networks:
     type: TwoLayer
     params: 
