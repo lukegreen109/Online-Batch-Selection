@@ -140,11 +140,12 @@ class DiagnosticsLogger:
             if self.wandb_loss_acc:
                 log_data['train_loss'] = snapshot_metrics['train_loss']
                 log_data['train_acc'] = snapshot_metrics['train_acc']
-                log_data['train_loss_train_loader_labels'] = snapshot_metrics['train_loss']
+                # log_data['train_loss_train_loader_labels'] = snapshot_metrics['train_loss']
                 if self.snapshot_manager.uses_true_labels_for_train_accuracy():
-                    log_data['train_acc_true_labels'] = snapshot_metrics['train_acc']
-                else:
-                    log_data['train_acc_train_loader_labels'] = snapshot_metrics['train_acc']
+                    log_data['train_acc_true_labels'] = snapshot_metrics['train_acc_true_labels']
+                    log_data['train_loss_true_labels'] = snapshot_metrics['train_loss_true_labels']
+                    log_data['train_acc_loader_labels'] = snapshot_metrics['train_acc']
+                    log_data['train_loss_loader_labels'] = snapshot_metrics['train_loss']
                 log_data['val_loss'] = snapshot_metrics['val_loss']
                 log_data['val_acc'] = snapshot_metrics['val_acc']
                 log_data['best_val_acc'] = float(self.best_acc)

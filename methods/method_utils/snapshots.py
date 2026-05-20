@@ -221,7 +221,6 @@ class SnapshotManager:
                 model,
                 self.fixed_train_loader,
                 device,
-                true_labels=self.true_labels,
             )
             yvh, fv, ev = self._calculate_snapshot_stats(model, self.test_loader, device)
 
@@ -243,6 +242,23 @@ class SnapshotManager:
             'train_normed_logits_l2_mean': float(torch.norm(yh, p=2, dim=1).mean().item()),
             'val_normed_logits_l2_mean': float(torch.norm(yvh, p=2, dim=1).mean().item()),
         }
+        if self.true_labels is not None:
+            yht, ft, et = self._calculate_snapshot_stats(
+                model,
+                self.fixed_train_loader,
+                device,
+                true_labels=self.true_labels,
+            )
+            snapshot.update({
+                'yht': yht,
+                'ft': ft,
+                'et': et,
+            })
+            metrics.update({
+                'train_loss_true_labels': float(ft.mean().item()),
+                'train_acc_true_labels': float(1.0 - et.mean().item()),
+            })
+
         return snapshot, metrics
 
     def store_snapshot(self, snapshot, total_step):
