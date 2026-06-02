@@ -1,8 +1,8 @@
 #!/bin/bash
+
 SEEDS=(3 4)
 DIAGNOSTICS="configs/diagnostics/snapshots_log_interval.yaml"
 CONFIG_DIR="configs/cifar10"
-# METHODS=("$CONFIG_DIR/method/bayesian-0.1.yaml")
 METHODS=("$CONFIG_DIR/method/"*)
 MODELS=("$CONFIG_DIR/model/lenet.yaml")
 OPTIMS=("$CONFIG_DIR/optim/adamw-320-0.001-0.01.yaml")
