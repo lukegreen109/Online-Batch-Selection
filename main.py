@@ -6,7 +6,7 @@ import torch.nn as nn
 import numpy as np
 import random
 import secrets
-from utils import custom_logger,random_str, get_date, re_nest_configs, get_configs
+from utils import custom_logger,random_str, get_date, re_nest_configs, get_configs, get_save_dir
 import wandb
 import json
 
@@ -189,32 +189,7 @@ def main():
     
 
     if args.save_dir is None:
-        args.save_dir = './exp/'
-        # dataset
-        args.save_dir = os.path.join(args.save_dir, config['dataset']['name'])
-        # method
-        args.save_dir = os.path.join(args.save_dir, config['method'])
-        # model
-        args.save_dir = args.save_dir + '_' + config['networks']['params']['m_type']
-        # bs
-        args.save_dir = args.save_dir + '_bs' + str(config['training_opt']['batch_size'])
-        # epochs
-        args.save_dir = args.save_dir + '_ep' + str(config['training_opt']['num_epochs'])
-        # lr
-        args.save_dir = args.save_dir + '_lr' + str(config['training_opt']['optim_params']['lr'])
-        # optimizer
-        args.save_dir = args.save_dir + '_' + config['training_opt']['optimizer']
-        # scheduler
-        args.save_dir = args.save_dir + '_' + config['training_opt']['scheduler']
-        # seed
-        args.save_dir = args.save_dir + '_seed' + str(args.seed)
-        # ratio
-        if 'method_opt' in config:
-            if 'ratio' in config['method_opt']:
-                args.save_dir = args.save_dir + '_r' + str(config['method_opt']['ratio'])
-        # notes
-        if args.notes is not None:
-            args.save_dir = args.save_dir + '_' + args.notes
+        args.save_dir = get_save_dir(config, args.notes)
     
 
     # method/save_dir

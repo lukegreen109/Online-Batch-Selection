@@ -1,30 +1,55 @@
 import subprocess
 import time
 import argparse
+import glob
+import os
 
-def sync(dataset='*'):
-    print('Syncing...')
+def sync(save_dirs):
     start = time.time()
-    with subprocess.Popen(
-        f'wandb sync ./exp/{dataset}/**/wandb/offline-run-*',
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True, shell=True
-    ) as proc:
-        for line in proc.stdout:
-            print(line, end='')
-    elapsed = time.time() - start
-    print(f'Sync took {elapsed:.2f}s')
-    return elapsed
 
-def sync_daemon(dataset='*', interval_sec=30):
+    dirs = open(save_dirs).read().splitlines() if save_dirs.endswith('.txt') else [save_dirs]
+
+    wandb_dirs = []
+    for d in dirs:
+        wandb_dirs.extend(glob.glob(f"{d}/wandb/offline-run-*"))
+
+    if wandb_dirs:
+        cmd = ["wandb", "sync", *wandb_dirs]
+        with subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        ) as proc:
+            for line in proc.stdout:
+                print(line, end="")
+
+    return time.time() - start
+
+def sync_daemon(save_dirs, interval_sec=30):
     while True:
-        elapsed = sync(dataset)
+        print(f"Syncing... ({interval_sec}s interval)")
+        elapsed = sync(save_dirs)
+        print(f"Sync took {elapsed:.2f}s")
+
         sleep_time = max(0, interval_sec - elapsed)
-        time.sleep(sleep_time)
+        end_time = time.time() + sleep_time
+
+        # Display time remaining before next sync
+        while True:
+            remaining = end_time - time.time()
+            if remaining <= 0:
+                print(f"\rNext sync in 0.0s          ", flush=True)
+                break
+
+            print(f"\rNext sync in {remaining:.1f}s          ", end="", flush=True)
+            time.sleep(0.1)
+
+print()  # newline
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, default='*')
+    parser.add_argument('--save_dirs', type=str, default='./exp/**')
     parser.add_argument('--interval', type=int, default=60)
     args = parser.parse_args()
-    sync_daemon(args.dataset, args.interval)
+    sync_daemon(args.save_dirs, args.interval)
