@@ -39,10 +39,6 @@ def re_nest_configs(config_dict):
     if 'sweep_config' in config_dict.keys():
         config_dict._items.pop("sweep_config")
 
-import os
-import argparse
-from utils import get_configs
-
 def get_save_dir(config, notes=None):
     save_dir = './exp/'
     save_dir = os.path.join(save_dir, config['dataset']['name'])
