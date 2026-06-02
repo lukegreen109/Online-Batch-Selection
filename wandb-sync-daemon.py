@@ -45,7 +45,7 @@ def sync_daemon(save_dirs, interval_sec=30):
             print(f"\rNext sync in {remaining:.1f}s          ", end="", flush=True)
             time.sleep(0.1)
 
-print()  # newline
+        print()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
