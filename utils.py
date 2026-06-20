@@ -39,6 +39,23 @@ def re_nest_configs(config_dict):
     if 'sweep_config' in config_dict.keys():
         config_dict._items.pop("sweep_config")
 
+def get_save_dir(config, notes=None):
+    save_dir = './exp/'
+    save_dir = os.path.join(save_dir, config['dataset']['name'])
+    save_dir = os.path.join(save_dir, config['method'])
+    save_dir = save_dir + '_' + config['networks']['params']['m_type']
+    save_dir = save_dir + '_bs' + str(config['training_opt']['batch_size'])
+    save_dir = save_dir + '_ep' + str(config['training_opt']['num_epochs'])
+    save_dir = save_dir + '_lr' + str(config['training_opt']['optim_params']['lr'])
+    save_dir = save_dir + '_' + config['training_opt']['optimizer']
+    save_dir = save_dir + '_' + config['training_opt']['scheduler']
+    save_dir = save_dir + '_seed' + str(config['seed'])
+    if 'method_opt' in config and 'ratio' in config['method_opt']:
+        save_dir = save_dir + '_r' + str(config['method_opt']['ratio'])
+    if notes is not None:
+        save_dir = save_dir + '_' + notes
+    return save_dir
+
 class custom_logger():
     def __init__(self, output_path, name='log'):
         os.makedirs(output_path, exist_ok=True)
